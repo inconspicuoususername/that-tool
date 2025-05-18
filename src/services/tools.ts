@@ -1,18 +1,27 @@
 import fs from "fs/promises";
 import path from "path";
-import { ToolCallParams, ToolResult, ToolName } from "./types";
-import { TerminalService } from "./terminal";
+import { ToolCallParams, ToolResult, ToolName } from "../types";
+import { TerminalService } from "../terminal";
+import { FunctionTool, Tool } from "openai/resources/responses/responses";
+import { isValidTool } from "../tools-json";
 
-export class Tools {
+export class ToolsService {
   private workspacePath: string;
   private terminalService: TerminalService;
+  private originalWorkspacePath: string;
 
-  constructor(workspacePath: string) {
-    this.workspacePath = workspacePath;
-    this.terminalService = new TerminalService(workspacePath);
+  constructor(workspacePath: string, terminalService: TerminalService) {
+    this.originalWorkspacePath = workspacePath;
+    this.workspacePath = path.resolve(process.cwd(), workspacePath);
+    this.terminalService = terminalService;
   }
 
   private resolvePath(filePath: string): string {
+    if (filePath.startsWith(this.originalWorkspacePath)) {
+      console.log("LLM used original workspace path");
+      //help it out a bit
+      filePath = filePath.replace(this.originalWorkspacePath, ".");
+    }
     const resolvedPath = path.resolve(this.workspacePath, filePath);
     if (!resolvedPath.startsWith(this.workspacePath)) {
       throw new Error(`Access denied: Path ${filePath} is outside workspace`);
@@ -166,7 +175,7 @@ export class Tools {
     params: ToolCallParams["create_file_or_folder"]
   ): Promise<ToolResult["create_file_or_folder"]> {
     const targetPath = this.resolvePath(params.uri);
-    const isFolder = targetPath.endsWith("/") || targetPath.endsWith("\\");
+    const isFolder = params.uri.endsWith("/") || params.uri.endsWith("\\");
 
     if (isFolder) {
       await fs.mkdir(targetPath, { recursive: true });
@@ -279,6 +288,10 @@ export class Tools {
     };
   }
 
+  toolNameValid(name: string): name is ToolName {
+    return isValidTool(name);
+  }
+
   async executeTool<T extends ToolName>(
     name: T,
     params: ToolCallParams[T]
@@ -349,3 +362,229 @@ export class Tools {
     }
   }
 }
+
+//due to openai, all tool parameters have to be required.
+export const toolJSON: FunctionTool[] = [
+  {
+    type: "function",
+    name: "read_file",
+    strict: true,
+    description: "Read content from a file",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the file" },
+        start_line: {
+          type: "number",
+          description: "Starting line number (1-based)",
+        },
+        end_line: {
+          type: "number",
+          description: "Ending line number (1-based)",
+        },
+        page_number: {
+          type: "number",
+          description: "Page number for pagination",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "start_line", "end_line", "page_number"],
+    },
+  },
+  {
+    type: "function",
+    name: "ls_dir",
+    strict: true,
+    description: "List files and directories in a given path",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the directory" },
+        page_number: {
+          type: "number",
+          description: "Page number for pagination",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "page_number"],
+    },
+  },
+  {
+    type: "function",
+    name: "get_dir_tree",
+    strict: true,
+    description: "Get a tree representation of a directory",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the directory" },
+      },
+      additionalProperties: false,
+      required: ["uri"],
+    },
+  },
+  {
+    type: "function",
+    name: "search_pathnames_only",
+    strict: true,
+    description: "Search for files by name",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        include_pattern: {
+          type: "string",
+          description: "Pattern to include in search",
+        },
+        page_number: {
+          type: "number",
+          description: "Page number for pagination",
+        },
+      },
+      additionalProperties: false,
+      required: ["query", "include_pattern", "page_number"],
+    },
+  },
+  {
+    type: "function",
+    name: "search_for_files",
+    strict: true,
+    description: "Search for files with regex support",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        search_in_folder: {
+          type: "string",
+          description: "Folder to search in",
+        },
+        is_regex: {
+          type: "boolean",
+          description: "Whether to use regex matching",
+        },
+        page_number: {
+          type: "number",
+          description: "Page number for pagination",
+        },
+      },
+      additionalProperties: false,
+      required: ["query", "search_in_folder", "is_regex", "page_number"],
+    },
+  },
+  {
+    type: "function",
+    name: "search_in_file",
+    strict: true,
+    description: "Search for content within a file",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the file" },
+        query: { type: "string", description: "Search query" },
+        is_regex: {
+          type: "boolean",
+          description: "Whether to use regex matching",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "query", "is_regex"],
+    },
+  },
+  {
+    type: "function",
+    name: "read_lint_errors",
+    strict: true,
+    description: "Read linting errors for a file",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the file" },
+      },
+      additionalProperties: false,
+      required: ["uri"],
+    },
+  },
+  {
+    type: "function",
+    name: "create_file_or_folder",
+    strict: true,
+    description: "Create a new file or directory",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to create" },
+      },
+      additionalProperties: false,
+      required: ["uri"],
+    },
+  },
+  {
+    type: "function",
+    name: "delete_file_or_folder",
+    strict: true,
+    description: "Delete a file or directory",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to delete" },
+        is_recursive: {
+          type: "boolean",
+          description: "Whether to delete recursively",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "is_recursive"],
+    },
+  },
+  {
+    type: "function",
+    name: "rewrite_file",
+    strict: true,
+    description: "Replace entire file content",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the file" },
+        new_content: {
+          type: "string",
+          description: "New content for the file",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "new_content"],
+    },
+  },
+  {
+    type: "function",
+    name: "edit_file",
+    strict: true,
+    description: "Make targeted edits to a file",
+    parameters: {
+      type: "object",
+      properties: {
+        uri: { type: "string", description: "Path to the file" },
+        search_replace_blocks: {
+          type: "string",
+          description:
+            "JSON string of search-replace blocks. Each block has search, replace, and optional isRegex fields.",
+        },
+      },
+      additionalProperties: false,
+      required: ["uri", "search_replace_blocks"],
+    },
+  },
+  {
+    type: "function",
+    name: "commit",
+    strict: true,
+    description: "Call this tool when you're done with your task",
+    parameters: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "Commit message" },
+      },
+      additionalProperties: false,
+      required: ["message"],
+    },
+  },
+];

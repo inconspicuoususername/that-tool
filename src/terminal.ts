@@ -17,6 +17,10 @@ export class TerminalService {
     return id;
   }
 
+  getTerminalIDs(): string[] {
+    return Array.from(this.persistentTerminals.keys());
+  }
+
   private createTerminal(cwd?: string): ChildProcess {
     const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
     const terminal = spawn(shell, [], {
