@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { ToolCallParams, ToolResult, ToolName } from "../types";
+import { ToolCallParams, ToolResult, ToolName } from "../types/llm-tools";
 import { TerminalService } from "./terminal";
 import { FunctionTool, Tool } from "openai/resources/responses/responses";
 import { isValidTool } from "../llm/tools-json";

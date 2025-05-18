@@ -7,31 +7,31 @@ import { getToolJSON2 } from "@/llm/tools-json";
 import { getSystemMessage } from "@/llm/system_prompt";
 import { readLineAsync } from "@/util";
 
-import path from "path";
 import fs from "fs/promises";
 import OpenAI from "openai";
+import { TaskRecord } from "@/types/db";
+import { SHOULD_ASK_FOR_TOOL } from "@/lib/env";
+import { db } from "@/lib/db";
+import { oaiResponses, tasks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
-export async function executeTask(
-  openaiModel: string,
-  workspacePath: string,
-  task: string
-) {
+export async function executeTask(taskRecord: TaskRecord) {
   // Initialize tools
-  const terminalService = new TerminalService(workspacePath);
+  const terminalService = new TerminalService(taskRecord.workDir);
   const editCodeService = new EditCodeService();
   const tools = new ToolsService(
-    workspacePath,
+    taskRecord.workDir,
     terminalService,
     editCodeService
   );
 
-  // Create logs directory
-  const logsDir = path.join(process.cwd(), ".logs");
-  await fs.mkdir(logsDir, { recursive: true });
-
-  // Create log file
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const logFile = path.join(logsDir, `task-${timestamp}.log`);
+  // Function to log messages
+  async function log(message: string) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${message}\n`;
+    console.log(logMessage);
+    await fs.appendFile(taskRecord.logFile, logMessage);
+  }
 
   // Initialize conversation history
   let messages: OpenAI.Responses.ResponseInput = [
@@ -45,36 +45,35 @@ export async function executeTask(
     //     },
     {
       role: "user",
-      content: task,
+      content: taskRecord.prompt,
     },
   ];
 
   await log("Begin task execution.");
-  await log(`Task: ${task}`);
-  await log(`Workspace path: ${workspacePath}`);
-
-  // Function to log messages
-  async function log(message: string) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
-    console.log(logMessage);
-    await fs.appendFile(logFile, logMessage);
-  }
+  await log(`Task: ${taskRecord.prompt}`);
+  await log(`Workspace path: ${taskRecord.workDir}`);
 
   let previousResponseId: string | undefined;
+
+  await db
+    .update(tasks)
+    .set({
+      status: "running" as const,
+    })
+    .where(eq(tasks.id, taskRecord.id));
 
   // Main loop
   while (true) {
     const instructions = await getSystemMessage({
-      directoryPath: workspacePath,
+      directoryPath: taskRecord.workDir,
       persistentTerminalIDs: terminalService.getTerminalIDs(),
     });
 
     await log(`System prompt: ${instructions}`);
     // Get response from LLM
-    await log(`Calling OpenAI API with model ${openaiModel}`);
+    await log(`Calling OpenAI API with model ${taskRecord.modelName}`);
     const apiResponse = await openai.responses.create({
-      model: openaiModel,
+      model: taskRecord.modelName,
       input: messages,
       instructions,
       tools: getToolJSON2(),
@@ -83,6 +82,20 @@ export async function executeTask(
     });
 
     await log(`OpenAI API response recieved.`);
+
+    await db.insert(oaiResponses).values({
+      id: apiResponse.id,
+      taskId: taskRecord.id,
+      response: JSON.stringify(apiResponse.output),
+      oaiResponseId: apiResponse.id,
+    });
+
+    await db
+      .update(tasks)
+      .set({
+        currentOAIResponseId: apiResponse.id,
+      })
+      .where(eq(tasks.id, taskRecord.id));
 
     previousResponseId = apiResponse.id;
     messages = [];
@@ -137,12 +150,14 @@ export async function executeTask(
         await log(
           `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
         );
-        //ask for approval from stdin
-        console.log("Tool execution approved? (y/n)");
-        const line = await readLineAsync();
-        if (line.toLowerCase() !== "y") {
-          await log("Tool execution cancelled");
-          continue;
+        if (SHOULD_ASK_FOR_TOOL) {
+          //ask for approval from stdin
+          console.log("Tool execution approved? (y/n)");
+          const line = await readLineAsync();
+          if (line.toLowerCase() !== "y") {
+            await log("Tool execution cancelled");
+            continue;
+          }
         }
         const result = await tools.executeTool(toolCall.name, params);
         await log(`Tool result: ${JSON.stringify(result, null, 2)}`);

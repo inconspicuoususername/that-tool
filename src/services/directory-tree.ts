@@ -8,7 +8,7 @@ import {
 import { MAX_FILES_TOTAL } from "../lib/constants";
 import { Resolve, resolve } from "./filesystem";
 
-const shouldExcludeDirectory = (name: string) => {
+export const shouldExcludeDirectory = (name: string) => {
   if (
     name === ".git" ||
     name === "node_modules" ||
@@ -247,7 +247,7 @@ export const getAllDirectoriesStr = async ({
   const startMaxItemsPerDir = START_MAX_ITEMS_PER_DIR;
 
   // this prioritizes filling 1st workspace before any other, etc
-  str += `Directory of ${folder}:\n`;
+  // str += `Directory of ${folder}:\n`;
   const rootURI = folder;
 
   const eRoot = await resolve(rootURI);
