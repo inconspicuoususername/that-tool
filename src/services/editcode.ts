@@ -1,9 +1,9 @@
 import { URI } from "vscode-uri";
 import { ExtractedSearchReplaceBlock } from "./extractcode";
-import { tripleTick } from "../constants";
+import { searchReplaceBlockTemplate, tripleTick } from "../lib/constants";
 import { extractSearchReplaceBlocks } from "./extractcode";
 import { readFileSync, writeFileSync } from "fs";
-
+import { findTextInCode } from "./findtext";
 export class EditCodeService {
   private _errContentOfInvalidStr = (
     str: "Not found" | "Not unique" | "Has overlap",
@@ -31,24 +31,27 @@ export class EditCodeService {
     return descStr;
   };
 
-  private getModel(uri: URI) {
-    // const model = this._voidModelService.getModel(uri);
-    const modelStr = readFileSync(uri.fsPath, "utf8");
-    if (!modelStr) {
-      throw new Error(`Error writing URI text: File does not exist.`);
+  public applySRBlocks(uri: URI, blocksStr: string, modelStr: string) {
+    if (blocksStr === undefined) {
+      throw new Error(
+        `No Search/Replace blocks were received! Make sure you're using the correct format for blocks. Example:
+${searchReplaceBlockTemplate}`
+      );
     }
-    return modelStr;
-  }
-
-  public applySRBlocks(uri: URI, blocksStr: string) {
     const blocks = extractSearchReplaceBlocks(blocksStr);
     if (blocks.length === 0)
-      throw new Error(`No Search/Replace blocks were received!`);
-    const modelStr = this.getModel(uri);
-    if (!modelStr)
+      throw new Error(
+        `No Search/Replace blocks were received! Make sure you're using the correct format for blocks. Example:
+${searchReplaceBlockTemplate}`
+      );
+    if (modelStr == undefined)
       throw new Error(
         `Error applying Search/Replace blocks: File does not exist.`
       );
+
+    if (modelStr.length === 0)
+      throw new Error(`Error applying Search/Replace blocks: File is empty.`);
+
     // .split('\n').map(l => '\t' + l).join('\n') // for testing purposes only, remember to remove this
     const modelStrLines = modelStr.split("\n");
 

@@ -1,4 +1,4 @@
-import { FunctionTool } from "openai/resources/responses/responses.mjs";
+import { FunctionTool } from "openai/resources/responses/responses";
 import {
   MAX_TERMINAL_INACTIVE_TIME,
   MAX_TERMINAL_BG_COMMAND_TIME,
@@ -7,7 +7,7 @@ import {
   replaceTool_description,
   cwdHelper,
   terminalDescHelper,
-} from "./constants";
+} from "../lib/constants";
 
 export const toolJSON2 = {
   read_file: {
@@ -182,6 +182,15 @@ export const toolJSON2 = {
       },
     },
   },
+  commit: {
+    name: "commit",
+    description: `Commit your changes. This should be your final function call.`,
+    params: {
+      message: {
+        description: `The commit message.`,
+      },
+    },
+  },
 } as {
   [key: string]: {
     name: string;
@@ -194,7 +203,7 @@ function getProperties(params: Record<string, { description: string }>) {
   return Object.keys(params).reduce((acc, key) => {
     acc[key] = { type: "string", description: params[key].description };
     return acc;
-  }, {});
+  }, {} as Record<string, { type: string; description: string }>);
 }
 
 export function isValidTool(name: string) {

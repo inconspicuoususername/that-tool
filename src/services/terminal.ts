@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import path from "path";
+import { MAX_TERMINAL_BG_COMMAND_TIME } from "../lib/constants";
 
 export class TerminalService {
   private persistentTerminals: Map<string, ChildProcess> = new Map();
@@ -51,14 +52,22 @@ export class TerminalService {
   async runCommand(
     command: string,
     cwd?: string
-  ): Promise<{ output: string; exitCode: number }> {
+  ): Promise<{
+    output: {
+      output: string;
+      exitReason: "success" | "timeout";
+    };
+    exitCode: number;
+  }> {
     return new Promise((resolve) => {
+      const timeout = MAX_TERMINAL_BG_COMMAND_TIME * 1000;
       const terminal = this.createTerminal(cwd);
       const terminalId = this.getTerminalId();
       const eventEmitter = new EventEmitter();
       this.terminalEvents.set(terminalId, eventEmitter);
 
       let output = "";
+      let exitReason: "success" | "timeout" = "success";
       eventEmitter.on("data", (data) => {
         output += data;
       });
@@ -66,8 +75,19 @@ export class TerminalService {
       terminal.on("close", (code) => {
         this.terminalEvents.delete(terminalId);
         this.terminalOutputs.delete(terminalId);
-        resolve({ output, exitCode: code || 0 });
+        resolve({
+          output: {
+            output,
+            exitReason,
+          },
+          exitCode: code || 0,
+        });
       });
+
+      setTimeout(() => {
+        exitReason = "timeout";
+        terminal.kill();
+      }, timeout);
 
       if (terminal.stdin) {
         terminal.stdin.write(command + "\n");

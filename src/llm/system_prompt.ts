@@ -1,4 +1,4 @@
-import { getAllDirectoriesStr } from "./services/directory-tree";
+import { getAllDirectoriesStr } from "../services/directory-tree";
 
 export const getSystemMessage = async ({
   persistentTerminalIDs,
@@ -18,6 +18,7 @@ Please complete the task at hand.`;
 
   const sysInfo = `Here is the system information:
 <system_info>
+- Today's date is ${new Date().toDateString()}.
 - Your workspace directory is:
 ${directoryPath}
 ${
@@ -108,17 +109,16 @@ ${directoriesStr.trim()}
   details.push(
     `Always use MARKDOWN to format lists, bullet points, etc. Do NOT write tables.`
   );
-  details.push(`Today's date is ${new Date().toDateString()}.`);
 
   const importantDetails = `Important notes:
-${details.map((d, i) => `${i + 1}. ${d}`).join("\n\n")}`;
+${details.map((d) => `- ${d}`).join("\n\n")}`;
 
   // return answer
   const ansStrs: string[] = [];
   ansStrs.push(header);
-  ansStrs.push(sysInfo);
   //   if (toolDefinitions) ansStrs.push(toolDefinitions);
   ansStrs.push(importantDetails);
+  ansStrs.push(sysInfo);
   ansStrs.push(fsInfo);
 
   const fullSystemMsgStr = ansStrs.join("\n\n\n").trim().replace("\t", "  ");

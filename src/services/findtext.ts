@@ -8,7 +8,7 @@ const numLinesOfStr = (str: string) => str.split("\n").length;
 // finds block.orig in fileContents and return its range in file
 // startingAtLine is 1-indexed and inclusive
 // returns 1-indexed lines
-const findTextInCode = (
+export const findTextInCode = (
   text: string,
   fileContents: string,
   canFallbackToRemoveWhitespace: boolean,

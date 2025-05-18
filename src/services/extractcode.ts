@@ -1,6 +1,6 @@
-import { DIVIDER, FINAL } from "../constants";
+import { DIVIDER, FINAL } from "../lib/constants";
 
-import { ORIGINAL } from "../constants";
+import { ORIGINAL } from "../lib/constants";
 
 export type ExtractedSearchReplaceBlock = {
   state: "writingOriginal" | "writingFinal" | "done";

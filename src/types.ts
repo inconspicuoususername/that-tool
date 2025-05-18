@@ -123,7 +123,10 @@ export interface ToolResult {
     success: boolean;
   };
   run_command: {
-    output: string;
+    output: {
+      output: string;
+      exitReason: "success" | "timeout";
+    };
     exitCode: number;
   };
   run_persistent_command: {

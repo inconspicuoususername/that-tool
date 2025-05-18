@@ -1,19 +1,27 @@
 import fs from "fs/promises";
 import path from "path";
 import { ToolCallParams, ToolResult, ToolName } from "../types";
-import { TerminalService } from "../terminal";
+import { TerminalService } from "./terminal";
 import { FunctionTool, Tool } from "openai/resources/responses/responses";
-import { isValidTool } from "../tools-json";
+import { isValidTool } from "../llm/tools-json";
+import { EditCodeService } from "./editcode";
+import { URI } from "vscode-uri";
 
 export class ToolsService {
   private workspacePath: string;
   private terminalService: TerminalService;
   private originalWorkspacePath: string;
+  private editCodeService: EditCodeService;
 
-  constructor(workspacePath: string, terminalService: TerminalService) {
+  constructor(
+    workspacePath: string,
+    terminalService: TerminalService,
+    editCodeService: EditCodeService
+  ) {
     this.originalWorkspacePath = workspacePath;
     this.workspacePath = path.resolve(process.cwd(), workspacePath);
     this.terminalService = terminalService;
+    this.editCodeService = editCodeService;
   }
 
   private resolvePath(filePath: string): string {
@@ -213,30 +221,28 @@ export class ToolsService {
     return { success: true };
   }
 
+  private async getURI(path: string) {
+    const resolved = this.resolvePath(path);
+    return URI.file(resolved);
+  }
+
+  private async getModel(uri: URI) {
+    const filePath = this.resolvePath(uri.fsPath);
+    const content = await fs.readFile(filePath, "utf-8");
+    return content;
+  }
+
   async editFile(
     params: ToolCallParams["edit_file"]
   ): Promise<ToolResult["edit_file"]> {
-    const filePath = this.resolvePath(params.uri);
-    const content = await fs.readFile(filePath, "utf-8");
-
-    // Parse search-replace blocks
-    const blocks = JSON.parse(params.search_replace_blocks) as Array<{
-      search: string;
-      replace: string;
-      isRegex?: boolean;
-    }>;
-
-    let newContent = content;
-    for (const block of blocks) {
-      if (block.isRegex) {
-        const regex = new RegExp(block.search, "g");
-        newContent = newContent.replace(regex, block.replace);
-      } else {
-        newContent = newContent.replaceAll(block.search, block.replace);
-      }
-    }
-
-    await fs.writeFile(filePath, newContent, "utf-8");
+    const { uri, search_replace_blocks } = params;
+    const uriObj = await this.getURI(uri);
+    const model = await this.getModel(uriObj);
+    await this.editCodeService.applySRBlocks(
+      uriObj,
+      search_replace_blocks,
+      model
+    );
     return { success: true };
   }
 
