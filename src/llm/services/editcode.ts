@@ -1,6 +1,6 @@
 import { URI } from "vscode-uri";
 import { ExtractedSearchReplaceBlock } from "./extractcode";
-import { searchReplaceBlockTemplate, tripleTick } from "../lib/constants";
+import { searchReplaceBlockTemplate, tripleTick } from "../constants";
 import { extractSearchReplaceBlocks } from "./extractcode";
 import { readFileSync, writeFileSync } from "fs";
 import { findTextInCode } from "./findtext";

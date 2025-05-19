@@ -1,4 +1,4 @@
-import { getAllDirectoriesStr } from "../services/directory-tree";
+import { getAllDirectoriesStr } from "./services/directory-tree";
 
 export const getSystemMessage = async ({
   persistentTerminalIDs,

@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { PROJECTS_ROOT_DIR, LOG_DIR } from "@/lib/env";
 import { existsSync } from "fs";
 import { record } from "zod";
-import { shouldExcludeDirectory } from "@/services/directory-tree";
+import { shouldExcludeDirectory } from "@/llm/services/directory-tree";
 import archiver from "archiver";
 
 export interface Task {

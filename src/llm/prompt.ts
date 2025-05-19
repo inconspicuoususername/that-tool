@@ -1,6 +1,6 @@
-import { EditCodeService } from "@/services/editcode";
-import { TerminalService } from "@/services/terminal";
-import { ToolsService } from "@/services/tools";
+import { EditCodeService } from "@/llm/services/editcode";
+import { TerminalService } from "@/llm/services/terminal";
+import { ToolsService } from "@/llm/services/tools";
 
 import { openai } from "@/llm/openai";
 import { getToolJSON2 } from "@/llm/tools-json";

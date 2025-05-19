@@ -7,7 +7,7 @@ import {
   replaceTool_description,
   cwdHelper,
   terminalDescHelper,
-} from "../lib/constants";
+} from "./constants";
 
 export const toolJSON2 = {
   read_file: {

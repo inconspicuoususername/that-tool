@@ -4,8 +4,8 @@ import {
   MAX_DIRSTR_CHARS_TOTAL_BEGINNING,
   START_MAX_DEPTH,
   START_MAX_ITEMS_PER_DIR,
-} from "../lib/constants";
-import { MAX_FILES_TOTAL } from "../lib/constants";
+} from "../constants";
+import { MAX_FILES_TOTAL } from "../constants";
 import { Resolve, resolve } from "./filesystem";
 
 export const shouldExcludeDirectory = (name: string) => {

@@ -3,7 +3,7 @@ import path from "path";
 import { ToolCallParams, ToolResult, ToolName } from "../types/llm-tools";
 import { TerminalService } from "./terminal";
 import { FunctionTool, Tool } from "openai/resources/responses/responses";
-import { isValidTool } from "../llm/tools-json";
+import { isValidTool } from "../tools-json";
 import { EditCodeService } from "./editcode";
 import { URI } from "vscode-uri";
 
