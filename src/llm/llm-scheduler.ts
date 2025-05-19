@@ -162,7 +162,9 @@ export class LLMScheduler {
       };
     }
 
-    const files = await fs.readdir(task.workDir);
+    const fpath = task.workDir;
+
+    const files = await fs.readdir(fpath);
 
     const archive = archiver("zip", {
       zlib: { level: 9 },
@@ -172,8 +174,12 @@ export class LLMScheduler {
       if (shouldExcludeDirectory(file)) {
         continue;
       }
-
-      archive.append(file, { name: file });
+      const stat = await fs.stat(path.join(fpath, file));
+      if (stat.isDirectory()) {
+        archive.directory(path.join(fpath, file), file);
+      } else {
+        archive.append(file, { name: file });
+      }
     }
 
     // archive.pipe()

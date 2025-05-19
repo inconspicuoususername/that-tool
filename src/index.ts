@@ -19,9 +19,23 @@ const app = express();
 
 app.use(express.json());
 app.use(cors());
+app.use((req, res, next) => {
+  const simpleAuthHeader = req.headers["authorization"];
+  if (simpleAuthHeader !== "Bearer " + process.env.SIMPLE_AUTH_TOKEN) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  next();
+});
+app.use((req, res, next) => {
+  res.on("finish", () => {
+    console.log(`${req.method} ${req.url} - ${res.statusCode}`);
+  });
+  next();
+});
 
 app.use("/task", taskRouter);
 
-app.listen(3050, () => {
-  console.log("Server is running on port 3050");
+app.listen(5001, () => {
+  console.log("Server is running on port 5001");
 });

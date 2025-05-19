@@ -1,0 +1,10 @@
+projects
+node_modules
+.git
+.gitignore
+.dockerignore
+.env
+.env.local
+.doc
+.logs
+.vscode
