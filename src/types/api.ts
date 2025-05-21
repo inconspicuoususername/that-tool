@@ -1,13 +1,42 @@
 import { z } from "zod";
 
-export const startTaskSchema = z.object({
-  openaiModel: z.string(),
+export const createProjectSchema = z.object({
   projectName: z.string(),
+});
+
+export type CreateProjectRequest = z.infer<typeof createProjectSchema>;
+
+export const baseStartTaskSchema = z.object({
+  type: z.enum(["github", "local"]),
+  projectName: z.string(),
+  openaiModel: z.string(),
   prompt: z.string(),
   notifyURL: z.string().url().optional(),
 });
 
-export type StartTaskRequest = z.infer<typeof startTaskSchema>;
+export const localStartTaskSchema = baseStartTaskSchema.extend({
+  type: z.literal("local"),
+});
+
+export const githubStartTaskSchema = baseStartTaskSchema.extend({
+  type: z.literal("github"),
+  owner: z.string(),
+  repo: z.string(),
+  privateAccessToken: z.string(),
+  startBranch: z.string(),
+  targetBranch: z.string(),
+});
+
+export const startTaskRequestSchema = z.discriminatedUnion("type", [
+  localStartTaskSchema,
+  githubStartTaskSchema,
+]);
+
+export type StartTaskRequest = z.infer<typeof startTaskRequestSchema>;
+
+export type LocalStartTaskRequest = z.infer<typeof localStartTaskSchema>;
+
+export type GithubStartTaskRequest = z.infer<typeof githubStartTaskSchema>;
 
 export const startTaskResponseSchema = z.object({
   taskID: z.string(),

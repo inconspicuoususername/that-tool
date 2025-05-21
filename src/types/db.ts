@@ -1,26 +1,32 @@
+import { createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
+import {
+  oaiResponses,
+  projects,
+  tasks,
+  subTasks,
+  taskGithubInfo,
+} from "@/lib/db/schema";
 
-export const oaiResponseSchema = z.object({
-  id: z.string(),
-  taskId: z.string(),
-  response: z.any(),
-  oaiResponseId: z.string(),
-  createdAt: z.string(),
+export const projectsSchema = createSelectSchema(projects);
+export const tasksSchema = createSelectSchema(tasks);
+export const taskGithubInfoSchema = createSelectSchema(taskGithubInfo).extend({
+  pullRequest: z
+    .object({
+      id: z.number(),
+      number: z.number(),
+      state: z.string(),
+      title: z.string(),
+      body: z.string().nullable(),
+      url: z.string(),
+    })
+    .nullable(),
 });
-export const taskSchema = z.object({
-  id: z.string(),
-  projectName: z.string(),
-  modelName: z.string(),
-  prompt: z.string(),
-  workDir: z.string(),
-  logFile: z.string(),
-  currentOAIResponseId: z.string().nullable(),
-  webhookURL: z.string().nullable(),
-  status: z.string(),
-  error: z.string().nullable(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-});
+export const subTasksSchema = createSelectSchema(subTasks);
+export const oaiResponsesSchema = createSelectSchema(oaiResponses);
 
-export type TaskRecord = z.infer<typeof taskSchema>;
-export type OAIResponseRecord = z.infer<typeof oaiResponseSchema>;
+export type ProjectRecord = z.infer<typeof projectsSchema>;
+export type TaskRecord = z.infer<typeof tasksSchema>;
+export type TaskGithubInfoRecord = z.infer<typeof taskGithubInfoSchema>;
+export type SubTaskRecord = z.infer<typeof subTasksSchema>;
+export type OAIResponseRecord = z.infer<typeof oaiResponsesSchema>;

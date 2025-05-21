@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { ToolCallParams, ToolResult, ToolName } from "../types/llm-tools";
+import { ToolCallParams, ToolResult, ToolName } from "@/llm/llm-tools";
 import { TerminalService } from "./terminal";
 import { FunctionTool, Tool } from "openai/resources/responses/responses";
 import { isValidTool } from "../tools-json";
@@ -249,10 +249,8 @@ export class ToolsService {
   async runCommand(
     params: ToolCallParams["run_command"]
   ): Promise<ToolResult["run_command"]> {
-    const result = await this.terminalService.runCommand(
-      params.command,
-      params.cwd
-    );
+    const path = params.cwd ? this.resolvePath(params.cwd) : this.workspacePath;
+    const result = await this.terminalService.runCommand(params.command, path);
     return {
       output: result.output,
       exitCode: result.exitCode,

@@ -1,4 +1,5 @@
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 
 import path from "path";
 
@@ -34,3 +35,5 @@ export const LOG_DIR = getOrDefault(
   "LOG_DIR",
   path.join(process.cwd(), ".logs")
 );
+
+// export const GITHUB_TOKEN = getOrDefault("GITHUB_TOKEN");

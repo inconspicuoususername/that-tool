@@ -187,7 +187,10 @@ export const toolJSON2 = {
     description: `Commit your changes. This should be your final function call.`,
     params: {
       message: {
-        description: `The commit message.`,
+        description: `The commit message. Max. 50 characters.`,
+      },
+      description: {
+        description: `The commit description. Max. 1000 characters.`,
       },
     },
   },

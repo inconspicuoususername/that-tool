@@ -2,6 +2,8 @@ import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
 import path from "path";
 import { MAX_TERMINAL_BG_COMMAND_TIME } from "../constants";
+import { cwd } from "process";
+import { string, number, boolean } from "zod";
 
 export class TerminalService {
   private persistentTerminals: Map<string, ChildProcess> = new Map();
@@ -23,7 +25,8 @@ export class TerminalService {
   }
 
   private createTerminal(cwd?: string): ChildProcess {
-    const shell = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
+    const shell = process.platform === "win32" ? "cmd.exe" : "/bin/sh";
+    // console.log("shell info", shell, cwd || this.workspacePath);
     const terminal = spawn(shell, [], {
       cwd: cwd || this.workspacePath,
       env: process.env,
@@ -46,6 +49,32 @@ export class TerminalService {
       this.terminalEvents.get(terminalId)?.emit("data", output);
     });
 
+    terminal.on("exit", (code) => {
+      console.log(
+        "Recieved exit event for terminal",
+        terminal.pid ?? "unknown",
+        "with code",
+        code
+      );
+    });
+
+    terminal.on("error", (error) => {
+      console.error(
+        "Recieved error event for terminal",
+        terminal.pid ?? "unknown",
+        "with error",
+        error
+      );
+    });
+
+    terminal.on("close", (code) => {
+      console.log(
+        "Recieved close event for terminal",
+        terminal.pid ?? "unknown",
+        "with code",
+        code
+      );
+    });
     return terminal;
   }
 
@@ -72,9 +101,15 @@ export class TerminalService {
         output += data;
       });
 
-      terminal.on("close", (code) => {
+      const timeoutId = setTimeout(() => {
+        exitReason = "timeout";
+        terminal.kill();
+      }, timeout);
+
+      terminal.on("exit", (code) => {
         this.terminalEvents.delete(terminalId);
         this.terminalOutputs.delete(terminalId);
+        clearTimeout(timeoutId);
         resolve({
           output: {
             output,
@@ -84,15 +119,20 @@ export class TerminalService {
         });
       });
 
-      setTimeout(() => {
-        exitReason = "timeout";
-        terminal.kill();
-      }, timeout);
-
-      if (terminal.stdin) {
-        terminal.stdin.write(command + "\n");
-        terminal.stdin.end();
-      }
+      terminal.once("spawn", () => {
+        if (terminal.stdin?.writable) {
+          try {
+            terminal.stdin.write(command + "\n");
+          } catch (error) {
+            console.error(
+              "error writing command to terminal",
+              JSON.stringify(error)
+            );
+          }
+        } else {
+          console.error("terminal stdin not writable");
+        }
+      });
     });
   }
 

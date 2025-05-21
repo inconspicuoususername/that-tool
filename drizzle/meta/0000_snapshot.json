@@ -1,5 +1,5 @@
 {
-  "id": "c02effc9-85bc-471d-be06-63bc5eb0a3c6",
+  "id": "735ba04a-c7e5-4eb2-9b71-6500bdbbbfce",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -14,9 +14,9 @@
           "primaryKey": true,
           "notNull": true
         },
-        "task_id": {
-          "name": "task_id",
-          "type": "uuid",
+        "sub_task_id": {
+          "name": "sub_task_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -42,13 +42,13 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "oai_responses_task_id_tasks_id_fk": {
-          "name": "oai_responses_task_id_tasks_id_fk",
+        "oai_responses_sub_task_id_sub_tasks_id_fk": {
+          "name": "oai_responses_sub_task_id_sub_tasks_id_fk",
           "tableFrom": "oai_responses",
-          "tableTo": "tasks",
+          "tableTo": "sub_tasks",
           "schemaTo": "ttl_agent",
           "columnsFrom": [
-            "task_id"
+            "sub_task_id"
           ],
           "columnsTo": [
             "id"
@@ -63,8 +63,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "ttl_agent.tasks": {
-      "name": "tasks",
+    "ttl_agent.projects": {
+      "name": "projects",
       "schema": "ttl_agent",
       "columns": {
         "id": {
@@ -77,6 +77,45 @@
         "project_name": {
           "name": "project_name",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ttl_agent.sub_tasks": {
+      "name": "sub_tasks",
+      "schema": "ttl_agent",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
@@ -110,12 +149,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "webhook_url": {
-          "name": "webhook_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "status": {
           "name": "status",
           "type": "varchar",
@@ -126,6 +159,179 @@
         "error": {
           "name": "error",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "sub_tasks_task_id_tasks_id_fk": {
+          "name": "sub_tasks_task_id_tasks_id_fk",
+          "tableFrom": "sub_tasks",
+          "tableTo": "tasks",
+          "schemaTo": "ttl_agent",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ttl_agent.task_github_info": {
+      "name": "task_github_info",
+      "schema": "ttl_agent",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "task_id": {
+          "name": "task_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "repo": {
+          "name": "repo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "private_access_token": {
+          "name": "private_access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "start_branch": {
+          "name": "start_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_branch": {
+          "name": "target_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pull_request": {
+          "name": "pull_request",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "task_github_info_task_id_tasks_id_fk": {
+          "name": "task_github_info_task_id_tasks_id_fk",
+          "tableFrom": "task_github_info",
+          "tableTo": "tasks",
+          "schemaTo": "ttl_agent",
+          "columnsFrom": [
+            "task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "ttl_agent.tasks": {
+      "name": "tasks",
+      "schema": "ttl_agent",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "initial_prompt": {
+          "name": "initial_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_prompt": {
+          "name": "current_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "webhook_url": {
+          "name": "webhook_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_sub_task_id": {
+          "name": "current_sub_task_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "github_info_id": {
+          "name": "github_info_id",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },

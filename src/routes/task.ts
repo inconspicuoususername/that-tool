@@ -1,16 +1,19 @@
-import { startTaskSchema, getTaskSchema } from "@/types/api";
-import { llmScheduler } from "@/llm/llm-scheduler";
+import { startTaskRequestSchema, getTaskSchema } from "@/types/api";
 import { Router, Request, Response, RequestHandler } from "express";
+import { newServiceMesh } from "@/llm/mesh";
+import { PROJECTS_ROOT_DIR, LOG_DIR } from "@/lib/env";
+
+const serviceMesh = newServiceMesh(PROJECTS_ROOT_DIR, LOG_DIR);
 
 const startTask: RequestHandler = async (req, res) => {
-  const validated = startTaskSchema.safeParse(req.body);
+  const validated = startTaskRequestSchema.safeParse(req.body);
 
   if (!validated.success) {
     res.status(400).json({ error: validated.error.message });
     return;
   }
 
-  const result = await llmScheduler.addTask(validated.data);
+  const result = await serviceMesh.taskService.addTask(validated.data);
   res.json(result);
 };
 
@@ -22,7 +25,9 @@ const getTaskStatus: RequestHandler = async (req, res) => {
     return;
   }
 
-  const result = await llmScheduler.getTaskStatus(taskID.data);
+  const result = await serviceMesh.taskService.getCurrentSubTaskStatus(
+    taskID.data
+  );
   res.json(result);
 };
 
@@ -34,7 +39,7 @@ const getTaskLogs: RequestHandler = async (req, res) => {
     return;
   }
 
-  const result = await llmScheduler.getTaskLogs(taskID.data);
+  const result = await serviceMesh.taskService.getSubTaskLogs(taskID.data);
   res.json(result);
 };
 
@@ -46,7 +51,7 @@ const getTask: RequestHandler = async (req, res) => {
     return;
   }
 
-  const result = await llmScheduler.getTask(taskID.data);
+  const result = await serviceMesh.taskService.getTask(taskID.data);
   res.json(result);
 };
 
@@ -58,7 +63,7 @@ const getTaskFiles: RequestHandler = async (req, res) => {
     return;
   }
 
-  const result = await llmScheduler.getTaskFiles(taskID.data);
+  const result = await serviceMesh.taskService.getSubTaskFiles(taskID.data);
   if (!result.success || !result.files) {
     res.status(400).json({ error: result.error ?? "Failed to get task files" });
     return;

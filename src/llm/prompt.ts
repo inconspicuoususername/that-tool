@@ -12,25 +12,30 @@ import OpenAI from "openai";
 import { TaskRecord } from "@/types/db";
 import { SHOULD_ASK_FOR_TOOL } from "@/lib/env";
 import { db } from "@/lib/db";
-import { oaiResponses, tasks } from "@/lib/db/schema";
+import { oaiResponses, subTasks, tasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { SubtaskInstance } from "./llm-scheduler";
 
-export async function executeTask(taskRecord: TaskRecord) {
-  // Initialize tools
-  const terminalService = new TerminalService(taskRecord.workDir);
-  const editCodeService = new EditCodeService();
-  const tools = new ToolsService(
-    taskRecord.workDir,
-    terminalService,
-    editCodeService
-  );
+export async function executeTask(task: SubtaskInstance) {
+  // // Initialize tools
+  // const terminalService = new TerminalService(taskRecord.workDir);
+  // const editCodeService = new EditCodeService();
+  // const tools = new ToolsService(
+  //   taskRecord.workDir,
+  //   terminalService,
+  //   editCodeService
+  // );
+
+  const terminalService = task.context.terminalService;
+  const tools = task.context.toolsService;
+  // const taskRecord = task.dbRecord;
 
   // Function to log messages
   async function log(message: string) {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] ${message}\n`;
     console.log(logMessage);
-    await fs.appendFile(taskRecord.logFile, logMessage);
+    await fs.appendFile(task.subtask.logFile, logMessage);
   }
 
   // Initialize conversation history
@@ -45,35 +50,35 @@ export async function executeTask(taskRecord: TaskRecord) {
     //     },
     {
       role: "user",
-      content: taskRecord.prompt,
+      content: task.context.currentPrompt,
     },
   ];
 
   await log("Begin task execution.");
-  await log(`Task: ${taskRecord.prompt}`);
-  await log(`Workspace path: ${taskRecord.workDir}`);
+  await log(`Task: ${task.context.currentPrompt}`);
+  await log(`Workspace path: ${task.subtask.workDir}`);
 
   let previousResponseId: string | undefined;
 
   await db
-    .update(tasks)
+    .update(subTasks)
     .set({
       status: "running" as const,
     })
-    .where(eq(tasks.id, taskRecord.id));
+    .where(eq(subTasks.id, task.subtask.id));
 
   // Main loop
   while (true) {
     const instructions = await getSystemMessage({
-      directoryPath: taskRecord.workDir,
+      directoryPath: task.subtask.workDir,
       persistentTerminalIDs: terminalService.getTerminalIDs(),
     });
 
-    await log(`System prompt: ${instructions}`);
+    // await log(`System prompt: ${instructions}`);
     // Get response from LLM
-    await log(`Calling OpenAI API with model ${taskRecord.modelName}`);
+    await log(`Calling OpenAI API with model ${task.subtask.modelName}`);
     const apiResponse = await openai.responses.create({
-      model: taskRecord.modelName,
+      model: task.subtask.modelName,
       input: messages,
       instructions,
       tools: getToolJSON2(),
@@ -85,17 +90,17 @@ export async function executeTask(taskRecord: TaskRecord) {
 
     await db.insert(oaiResponses).values({
       id: apiResponse.id,
-      taskId: taskRecord.id,
+      subTaskId: task.subtask.id,
       response: JSON.stringify(apiResponse.output),
       oaiResponseId: apiResponse.id,
     });
 
     await db
-      .update(tasks)
+      .update(subTasks)
       .set({
         currentOAIResponseId: apiResponse.id,
       })
-      .where(eq(tasks.id, taskRecord.id));
+      .where(eq(subTasks.id, task.subtask.id));
 
     previousResponseId = apiResponse.id;
     messages = [];
@@ -130,11 +135,17 @@ export async function executeTask(taskRecord: TaskRecord) {
 
     // // If no tool calls, check if task is complete
     const toolCalls = response.filter((x) => x.type === "function_call");
-    if (toolCalls.some((x) => x.name === "commit")) {
+    const commit = toolCalls.find((x) => x.name === "commit");
+    if (commit) {
       await log(
         "Tool call 'commit' found. Model has completed the task successfully."
       );
-      break;
+      const commitMessage = JSON.parse(commit.arguments).message;
+      const commitDescription = JSON.parse(commit.arguments).description;
+      return {
+        commitMessage: commitMessage as string,
+        commitDescription: commitDescription as string,
+      };
     }
 
     // Execute tool calls

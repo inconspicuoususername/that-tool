@@ -3,13 +3,13 @@
       "target": "esnext",
       "lib": [
         "esnext",
-        "dom",
+        // "dom",
         // "dom.iterable",
         // "webworker"
       ],
       "jsx": "react",
-      "allowJs": true,
-      "skipLibCheck": true,
+      // "allowJs": true,
+      "skipLibCheck": false,
       "strict": true,
       // "noEmit": true,
       "esModuleInterop": true,
@@ -17,7 +17,7 @@
       "moduleResolution": "node",
       "resolveJsonModule": true,
       "inlineSourceMap": true,
-      // "isolatedModules": true,
+      "isolatedModules": true,
       // "incremental": true,
       "paths": {
         "@/*": ["./src/*"]
