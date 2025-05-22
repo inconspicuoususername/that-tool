@@ -51,6 +51,12 @@ export const extractSearchReplaceBlocks = (str: string) => {
       });
       return blocks;
     }
+    const dividerCountInString = str.split(DIVIDER_).length - 1;
+    if (dividerCountInString > 1) {
+      throw new Error(
+        "Multiple dividers found in a single Search/Replace block. Make sure you include only one divider in each Search/Replace blocks."
+      );
+    }
     const origStrDone = voidSubstr(str, origStart, dividerStart);
     dividerStart += DIVIDER_.length;
     i = dividerStart;

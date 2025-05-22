@@ -8,7 +8,6 @@ import { createLogger } from "./lib/basic-logger";
 import { env } from "./lib/env";
 import { initIssueCrawler } from "./lib/issue-crawler";
 
-// // Get task from command line argument
 const app = express();
 const middlewareLogger = createLogger("express.js");
 

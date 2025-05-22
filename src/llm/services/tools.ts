@@ -44,8 +44,18 @@ export class ToolsService {
     const content = await fs.readFile(filePath, "utf-8");
     const lines = content.split("\n");
 
-    const startLine = params.start_line ?? 1;
-    const endLine = params.end_line ?? lines.length;
+    let startLine = params.start_line;
+    if (!startLine) startLine = 1;
+    else {
+      if (startLine > lines.length) startLine = lines.length;
+      else if (startLine < 1) startLine = 1;
+    }
+    let endLine = params.end_line;
+    if (!endLine) endLine = lines.length;
+    else {
+      if (endLine > lines.length) endLine = lines.length;
+      else if (endLine < startLine + 1) endLine = startLine + 1;
+    }
 
     const selectedLines = lines.slice(startLine - 1, endLine);
 

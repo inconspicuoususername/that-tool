@@ -58,7 +58,12 @@ export class TaskService {
       .select()
       .from(tasks)
       .where(
-        and(not(eq(tasks.status, "complete")), not(eq(tasks.status, "error")))
+        and(
+          not(eq(tasks.status, "complete")),
+          not(eq(tasks.status, "error")),
+          not(eq(tasks.status, "killed")),
+          not(eq(tasks.status, "closed"))
+        )
       );
 
     this.logger.info("Found", incompleteTasks.length, "incomplete tasks");
@@ -66,8 +71,10 @@ export class TaskService {
     for (const task of incompleteTasks) {
       if (task.status === "running") {
         this.logger.warn(
-          "Found running task that was never finalized. Continuing."
+          "Found running task that was never finalized. Killing task."
         );
+
+        await this.killAndRemoveTask(task);
 
         continue;
       }
@@ -105,16 +112,36 @@ export class TaskService {
             })
             .where(eq(tasks.id, task.id));
 
-          await db
-            .update(subTasks)
-            .set({
-              error: error.message,
-            })
-            .where(eq(subTasks.taskId, task.id));
+          if (task.currentSubTaskId) {
+            await db
+              .update(subTasks)
+              .set({
+                error: error.message,
+              })
+              .where(eq(subTasks.id, task.currentSubTaskId));
+          }
 
           continue;
         }
         throw error;
+      }
+
+      if (!githubInfo.pullRequest) {
+        this.logger.warn(
+          "Task is malformed: No pull request found for task:",
+          task.id,
+          "killing task."
+        );
+        if (task.currentSubTaskId) {
+          await db
+            .update(subTasks)
+            .set({
+              error: "Task is malformed: No pull request found for task.",
+            })
+            .where(eq(subTasks.id, task.currentSubTaskId));
+        }
+        await this.killAndRemoveTask(task);
+        continue;
       }
 
       const currentSubTask = await db.query.subTasks.findFirst({
@@ -456,7 +483,17 @@ export class TaskService {
       .where(eq(tasks.id, taskRecord.id));
 
     this.llmScheduler.removeCompleteCallback(taskRecord.currentSubTaskId!);
-
+    if (taskRecord.currentSubTaskId) {
+      await db
+        .update(subTasks)
+        .set({ status: "killed" })
+        .where(
+          and(
+            eq(subTasks.id, taskRecord.currentSubTaskId),
+            eq(subTasks.status, "running")
+          )
+        );
+    }
     this.llmScheduler.stopTaskIfExists(taskRecord.id);
   }
 

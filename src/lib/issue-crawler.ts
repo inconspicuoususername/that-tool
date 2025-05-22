@@ -72,7 +72,9 @@ async function crawlIssues(issueState: IssueState) {
           eq(taskGithubInfo.repo, o.repository.name),
           and(
             not(eq(tasks.status, "closed")),
-            not(eq(tasks.status, "complete"))
+            // not(eq(tasks.status, "complete")),
+            not(eq(tasks.status, "error")),
+            not(eq(tasks.status, "killed"))
           )
         )
       );

@@ -86,6 +86,9 @@ ${directoriesStr.trim()}
     `When you are done, use the 'commit' tool to commit your changes and indicate you're done.`
   );
   details.push(
+    `If you can't solve an issue, don't keep trying to solve it. Instead, call the 'commit' tool to commit your changes, and indicate in the description of the commit why you can't solve the issue.`
+  );
+  details.push(
     `When installing packages, use package managers such as pnpm, or go get, etc. You'll be told which package manager to use by the Project Manager.`
   );
 
