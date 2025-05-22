@@ -8,7 +8,6 @@ export type CreateProjectRequest = z.infer<typeof createProjectSchema>;
 
 export const baseStartTaskSchema = z.object({
   type: z.enum(["github", "local"]),
-  projectName: z.string(),
   openaiModel: z.string(),
   prompt: z.string(),
   notifyURL: z.string().url().optional(),
@@ -16,15 +15,16 @@ export const baseStartTaskSchema = z.object({
 
 export const localStartTaskSchema = baseStartTaskSchema.extend({
   type: z.literal("local"),
+  projectName: z.string(),
 });
 
 export const githubStartTaskSchema = baseStartTaskSchema.extend({
   type: z.literal("github"),
   owner: z.string(),
   repo: z.string(),
-  privateAccessToken: z.string(),
   startBranch: z.string(),
   targetBranch: z.string(),
+  linkedIssueNumber: z.number().optional(),
 });
 
 export const startTaskRequestSchema = z.discriminatedUnion("type", [

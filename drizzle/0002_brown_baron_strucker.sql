@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."task_github_info" ADD COLUMN "linked_issue_number" integer;

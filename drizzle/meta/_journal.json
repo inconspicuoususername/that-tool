@@ -5,8 +5,22 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1747827997109,
-      "tag": "0000_cold_union_jack",
+      "when": 1747847809784,
+      "tag": "0000_steep_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1747855178065,
+      "tag": "0001_gifted_justice",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1747856308904,
+      "tag": "0002_brown_baron_strucker",
       "breakpoints": true
     }
   ]

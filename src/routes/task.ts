@@ -1,11 +1,9 @@
 import { startTaskRequestSchema, getTaskSchema } from "@/types/api";
 import { Router, Request, Response, RequestHandler } from "express";
-import { newServiceMesh } from "@/llm/mesh";
-import { PROJECTS_ROOT_DIR, LOG_DIR } from "@/lib/env";
-
-const serviceMesh = newServiceMesh(PROJECTS_ROOT_DIR, LOG_DIR);
-
+import { serviceMesh } from "@/llm/mesh";
+import { GithubInstallationError } from "@/lib/github";
 const startTask: RequestHandler = async (req, res) => {
+  req.body;
   const validated = startTaskRequestSchema.safeParse(req.body);
 
   if (!validated.success) {
@@ -13,8 +11,21 @@ const startTask: RequestHandler = async (req, res) => {
     return;
   }
 
-  const result = await serviceMesh.taskService.addTask(validated.data);
-  res.json(result);
+  try {
+    const result = await serviceMesh.taskService.addTask(validated.data);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof GithubInstallationError) {
+      console.info(error);
+      res.status(400).json({ error: error.message });
+    } else if (error instanceof Error) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    } else {
+      console.error(error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
 };
 
 const getTaskStatus: RequestHandler = async (req, res) => {

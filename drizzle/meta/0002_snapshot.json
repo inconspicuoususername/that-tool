@@ -1,6 +1,6 @@
 {
-  "id": "4de88582-11a6-4364-822e-26bc310832d6",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "585965a7-9d7d-4b37-9e2c-9a32e8b25220",
+  "prevId": "7df03514-a02e-431b-88e9-1d08cb368d05",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -228,12 +228,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "private_access_token": {
-          "name": "private_access_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "start_branch": {
           "name": "start_branch",
           "type": "text",
@@ -249,6 +243,12 @@
         "pull_request": {
           "name": "pull_request",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "linked_issue_number": {
+          "name": "linked_issue_number",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         }

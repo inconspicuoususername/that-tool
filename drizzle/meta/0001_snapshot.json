@@ -1,6 +1,6 @@
 {
-  "id": "4de88582-11a6-4364-822e-26bc310832d6",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "7df03514-a02e-431b-88e9-1d08cb368d05",
+  "prevId": "4de88582-11a6-4364-822e-26bc310832d6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -224,12 +224,6 @@
         },
         "repo": {
           "name": "repo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "private_access_token": {
-          "name": "private_access_token",
           "type": "text",
           "primaryKey": false,
           "notNull": true

@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."task_github_info" DROP COLUMN "private_access_token";

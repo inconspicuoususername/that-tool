@@ -85,7 +85,15 @@ export const tasks = pgTable("tasks", {
     enum: ["github", "local"],
   }).notNull(),
   status: varchar("status", {
-    enum: ["pending", "running", "awaiting_approval", "complete", "error"],
+    enum: [
+      "pending",
+      "running",
+      "awaiting_approval",
+      "complete",
+      "error",
+      "closed",
+      "killed",
+    ],
   })
     .notNull()
     .default("pending"),
@@ -102,10 +110,10 @@ export const taskGithubInfo = pgTable("task_github_info", {
   taskId: integer("task_id").references(() => tasks.id),
   owner: text("owner").notNull(),
   repo: text("repo").notNull(),
-  privateAccessToken: text("private_access_token").notNull(),
   startBranch: text("start_branch").notNull(),
   targetBranch: text("target_branch").notNull(),
   pullRequest: jsonb("pull_request"),
+  linkedIssueNumber: integer("linked_issue_number"),
 });
 
 export const subTasks = pgTable("sub_tasks", {
@@ -119,7 +127,7 @@ export const subTasks = pgTable("sub_tasks", {
   logFile: text("log_file").notNull(),
   currentOAIResponseId: text("current_oai_response_id"),
   status: varchar("status", {
-    enum: ["pending", "running", "complete"],
+    enum: ["pending", "running", "complete", "killed"],
   })
     .notNull()
     .default("pending"),

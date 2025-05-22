@@ -10,11 +10,12 @@ import { readLineAsync } from "@/util";
 import fs from "fs/promises";
 import OpenAI from "openai";
 import { TaskRecord } from "@/types/db";
-import { SHOULD_ASK_FOR_TOOL } from "@/lib/env";
+import { env } from "@/lib/env";
 import { db } from "@/lib/db";
 import { oaiResponses, subTasks, tasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { SubtaskInstance } from "./llm-scheduler";
+import { createLogger } from "@/lib/basic-logger";
 
 export async function executeTask(task: SubtaskInstance) {
   // // Initialize tools
@@ -31,10 +32,11 @@ export async function executeTask(task: SubtaskInstance) {
   // const taskRecord = task.dbRecord;
 
   // Function to log messages
+  const logger = createLogger("Agent");
   async function log(message: string) {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] ${message}\n`;
-    console.log(logMessage);
+    logger.info(logMessage);
     await fs.appendFile(task.subtask.logFile, logMessage);
   }
 
@@ -161,7 +163,7 @@ export async function executeTask(task: SubtaskInstance) {
         await log(
           `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
         );
-        if (SHOULD_ASK_FOR_TOOL) {
+        if (env.shouldAskForTool) {
           //ask for approval from stdin
           console.log("Tool execution approved? (y/n)");
           const line = await readLineAsync();

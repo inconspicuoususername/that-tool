@@ -60,6 +60,20 @@ export class LLMScheduler {
     this.completeCallbacks.delete(subtaskId);
   }
 
+  public async stopTaskIfExists(taskId: number) {
+    const task = this.runningTasks.find((t) => t.subtask.taskId === taskId);
+    if (task) {
+      task.subtask.status = "killed";
+      task.promise = Promise.resolve();
+      this.runningTasks = this.runningTasks.filter((t) => t !== task);
+      this.completeCallbacks.delete(task.subtask.id);
+      await db
+        .update(subTasks)
+        .set({ status: "killed" })
+        .where(eq(subTasks.id, task.subtask.id));
+    }
+  }
+
   public async executeTask(task: SubTaskRecord) {
     const updatedSubtaskRecord = await db
       .update(subTasks)

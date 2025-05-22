@@ -19,21 +19,27 @@ function getOrDefaultBoolean(key: string, defaultValue?: boolean) {
   return value === "true";
 }
 
-export const OPENAI_API_KEY = getOrDefault("OPENAI_API_KEY");
-
-export const SHOULD_ASK_FOR_TOOL = getOrDefaultBoolean(
-  "SHOULD_ASK_FOR_TOOL",
-  false
-);
-
-export const PROJECTS_ROOT_DIR = getOrDefault(
-  "PROJECTS_ROOT_DIR",
-  path.join(process.cwd(), "projects")
-);
-
-export const LOG_DIR = getOrDefault(
-  "LOG_DIR",
-  path.join(process.cwd(), ".logs")
-);
-
-// export const GITHUB_TOKEN = getOrDefault("GITHUB_TOKEN");
+export const env = {
+  simpleAuthToken: getOrDefault("SIMPLE_AUTH_TOKEN"),
+  openai: {
+    apiKey: getOrDefault("OPENAI_API_KEY"),
+  },
+  shouldAskForTool: getOrDefaultBoolean("SHOULD_ASK_FOR_TOOL", false),
+  projectsRootDir: getOrDefault(
+    "PROJECTS_ROOT_DIR",
+    path.join(process.cwd(), "projects")
+  ),
+  logDir: getOrDefault("LOG_DIR", path.join(process.cwd(), ".logs")),
+  github: {
+    appId: getOrDefault("GITHUB_APP_ID"),
+    privateKeyFile: getOrDefault("GITHUB_APP_PK_FILE"),
+    webhookSecret: getOrDefault("GITHUB_WEBHOOK_SECRET"),
+    issueAcceptLabels: getOrDefault("GITHUB_ISSUES_ACCEPT_LABELS", ""),
+    issueIgnoreLabels: getOrDefault("GITHUB_ISSUES_IGNORE_LABELS", ""),
+    trustMeBro: getOrDefaultBoolean("GITHUB_TRUST_ME_BRO", false),
+    shouldDeleteBranchIfOverlapping: getOrDefaultBoolean(
+      "GITHUB_DELETE_BRANCH_IF_OVERLAPPING",
+      false
+    ),
+  },
+};
