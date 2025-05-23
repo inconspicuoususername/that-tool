@@ -164,7 +164,7 @@ export class GitHubWrapper {
     await repo.push("origin", branchName);
   }
 
-  private async findRepoClient(owner: string, repository: string) {
+  public async findRepoClient(owner: string, repository: string) {
     let client = null;
     for await (const repo of this.githubApp.eachRepository.iterator()) {
       if (

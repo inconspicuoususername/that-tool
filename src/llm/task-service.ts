@@ -178,7 +178,7 @@ export class TaskService {
   private onPullRequestReview: HandlerFunction<
     "pull_request_review" | "pull_request.closed"
   > = async (event) => {
-    this.logger.info("Pull request review event received:", event);
+    this.logger.info("Pull request review event received.");
     const dbtasks = await db
       .select()
       .from(tasks)
@@ -656,9 +656,11 @@ export class TaskService {
       return;
     }
 
+    let githubInfo: TaskGithubInfoRecord | null = null;
+
     if (task?.type === "github") {
       this.logger.info("On github task complete:", task);
-      const githubInfo = (await db.query.taskGithubInfo.findFirst({
+      githubInfo = (await db.query.taskGithubInfo.findFirst({
         where: eq(taskGithubInfo.id, task.githubInfoId!),
       })) as TaskGithubInfoRecord;
 
@@ -736,6 +738,11 @@ export class TaskService {
     } else {
       await this._onTaskApproved(task);
     }
+
+    const callback = this.onSubtaskCompleteCallbacks.get(task.id);
+    if (callback) {
+      callback(task, subtask, githubInfo ?? undefined);
+    }
   }
 
   private async _onTaskApproved(task: TaskRecord) {
@@ -758,6 +765,38 @@ export class TaskService {
     }
 
     await this._finalizeTask(task);
+  }
+
+  private onSubtaskCompleteCallbacks: Map<
+    number,
+    (
+      task: TaskRecord,
+      subtask: SubTaskRecord,
+      githubInfo?: TaskGithubInfoRecord
+    ) => Promise<void>
+  > = new Map();
+
+  public addOnSubtaskCompleteCallback(
+    taskId: number,
+    callback: (
+      task: TaskRecord,
+      subtask: SubTaskRecord,
+      githubInfo?: TaskGithubInfoRecord,
+    ) => Promise<void>
+  ) {
+    if (this.onSubtaskCompleteCallbacks.has(taskId)) {
+      this.logger.warn("Overwriting existing callback for task:", taskId);
+      return;
+    }
+    this.onSubtaskCompleteCallbacks.set(taskId, callback);
+  }
+
+  public removeOnSubtaskCompleteCallback(taskId: number) {
+    if (!this.onSubtaskCompleteCallbacks.has(taskId)) {
+      this.logger.warn("No callback found for task:", taskId);
+      return;
+    }
+    this.onSubtaskCompleteCallbacks.delete(taskId);
   }
 
   private async _onTaskClosed(task: TaskRecord) {

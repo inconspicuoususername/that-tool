@@ -104,9 +104,16 @@ async function crawlIssues(issueState: IssueState) {
         }
       });
 
+    issueState.logger.info(
+      `Found ${issues.length} issues for ${o.repository.owner.login}/${o.repository.name}.`
+    );
+    issueState.logger.info(
+      `Found ${relevantIssues.length} relevant issues for ${o.repository.owner.login}/${o.repository.name}.`
+    );
+
     const issue = relevantIssues.find((i) => i.body && i.body.length > 0);
     if (!issue?.body) {
-      issueState.logger.warn(`No issue with body found. Skipping.`);
+      issueState.logger.warn(`No issue or no issue with body found. Skipping.`);
       return;
     }
 
@@ -117,8 +124,21 @@ async function crawlIssues(issueState: IssueState) {
       `Found issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Scheduling task from branch: ${startBranch} to branch: ${targetBranch}.`
     );
 
+    try {
+      const repoClient = await serviceMesh.github.findRepoClient(o.repository.owner.login, o.repository.name);
+      await repoClient.rest.issues.createComment({
+        owner: o.repository.owner.login,
+        repo: o.repository.name,
+        issue_number: issue.number,
+        body: `I'll get right on it!\n\nIssue ${issue.number} has been scheduled for a task.`,
+      });
+    } catch(e) {
+      issueState.logger.error(`Failed to comment on issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Error: ${e}`);
+      return;
+    }
+
     const taskService = serviceMesh.taskService;
-    await taskService.addTask({
+    const task = await taskService.addTask({
       type: "github",
       owner: o.repository.owner.login,
       repo: o.repository.name,
@@ -129,7 +149,7 @@ async function crawlIssues(issueState: IssueState) {
       The issue is as follows:
       --------
       TITLE: ${issue.title}
-      LABELS: ${issue.labels.join(", ")}
+      LABELS: ${issue.labels.map((l) => (typeof l === "string" ? l : l.name)).join(", ")}
       ISSUE NUMBER: ${issue.number}
       URL: ${issue.html_url}
       --------
@@ -138,9 +158,29 @@ async function crawlIssues(issueState: IssueState) {
       --------
       Please fix the issue.
       `,
-      openaiModel: "gpt-4o-mini",
+      openaiModel: env.github.defaultOpenaiModel,
     } satisfies GithubStartTaskRequest);
 
+    if (!task.taskId) {
+      issueState.logger.error(
+        `Failed to add task for ${o.repository.owner.login}/${o.repository.name}. Error: ${task.error}`
+      );
+      return;
+    }
+
+    taskService.addOnSubtaskCompleteCallback(task.taskId, async (task, subtask, githubInfo) => {
+      issueState.logger.info(
+        `Subtask complete for ${o.repository.owner.login}/${o.repository.name}. Crawling issues.`
+      );
+      taskService.removeOnSubtaskCompleteCallback(task.id);
+      if (!githubInfo) {
+        issueState.logger.error(
+          `Failed to get github info for ${o.repository.owner.login}/${o.repository.name}. Skipping.`
+        );
+        return;
+      }
+      crawlIssues(issueState);
+    });
     // return {
     //   owner: o.repository.owner.login,
     //   repo: o.repository.name,
@@ -176,15 +216,16 @@ export function createWebhook(
       event.payload.action === "locked" ||
       event.payload.action === "closed"
     ) {
+      const logString = `${event.payload.repository.owner.login}/${event.payload.repository.name}#${event.payload.issue.number}`;
       if (event.payload.issue.state_reason === "completed") {
         issueState.logger.info(
-          `Issue ${event.payload.issue.number} completed. Skipping.`
+          `Issue ${logString} completed. Skipping.`
         );
         return;
       }
       // attempt to end task and remove PR
       issueState.logger.info(
-        `Attempting to end task and remove PR for ${event.payload.issue.number}`
+        `Attempting to end task and remove PR for ${logString}`
       );
       const tasksRecord = await db
         .select()

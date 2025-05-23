@@ -31,6 +31,7 @@ export const env = {
   ),
   logDir: getOrDefault("LOG_DIR", path.join(process.cwd(), ".logs")),
   github: {
+    defaultOpenaiModel: getOrDefault("GITHUB_DEFAULT_OPENAI_MODEL", "gpt-4o-mini"),
     appId: getOrDefault("GITHUB_APP_ID"),
     privateKeyFile: getOrDefault("GITHUB_APP_PK_FILE"),
     webhookSecret: getOrDefault("GITHUB_WEBHOOK_SECRET"),
