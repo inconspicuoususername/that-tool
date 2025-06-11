@@ -1,3 +1,5 @@
+import { LintTypescriptDiagnostic } from "@/lib/lint/ts";
+
 export type ToolName =
   | "read_file"
   | "ls_dir"
@@ -13,7 +15,8 @@ export type ToolName =
   | "run_command"
   | "run_persistent_command"
   | "open_persistent_terminal"
-  | "kill_persistent_terminal";
+  | "kill_persistent_terminal"
+  | "ask_for_help";
 
 export interface ToolCallParams {
   read_file: {
@@ -77,12 +80,16 @@ export interface ToolCallParams {
   kill_persistent_terminal: {
     persistent_terminal_id: string;
   };
+  ask_for_help: {
+    query: string;
+  };
 }
 
 export interface ToolResult {
   read_file: {
     content: string;
     lineCount: number;
+    lintErrors?: LintTypescriptDiagnostic[];
   };
   ls_dir: {
     files: string[];
@@ -104,11 +111,7 @@ export interface ToolResult {
     }[];
   };
   read_lint_errors: {
-    errors: {
-      line: number;
-      message: string;
-      severity: "error" | "warning" | "info";
-    }[];
+    errors: LintTypescriptDiagnostic[];
   };
   create_file_or_folder: {
     success: boolean;
@@ -118,9 +121,11 @@ export interface ToolResult {
   };
   rewrite_file: {
     success: boolean;
+    lintErrors?: LintTypescriptDiagnostic[];
   };
   edit_file: {
     success: boolean;
+    lintErrors?: LintTypescriptDiagnostic[];
   };
   run_command: {
     output: {
@@ -138,6 +143,9 @@ export interface ToolResult {
   };
   kill_persistent_terminal: {
     success: boolean;
+  };
+  ask_for_help: {
+    response: string;
   };
 }
 

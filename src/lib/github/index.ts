@@ -39,14 +39,14 @@ export class GitHubWrapper {
 
   public registerWebhookCallback(
     webhookCallback: HandlerFunction<
-      "pull_request_review" | "pull_request.closed"
+      "pull_request_review" | "pull_request.closed" | "issue_comment"
     >
   ) {
     this.logger.info(
       "Registering new webhook callback for pull_request_review"
     );
     this.githubApp.webhooks.on(
-      ["pull_request_review", "pull_request.closed"],
+      ["pull_request_review", "pull_request.closed", "issue_comment"],
       webhookCallback
     );
   }
@@ -266,5 +266,25 @@ export class GitHubWrapper {
         }
       }
     }
+  }
+
+  async createComment({
+    owner,
+    repository,
+    issueNumber,
+    body,
+  }: {
+    owner: string;
+    repository: string;
+    issueNumber: number;
+    body: string;
+  }) {
+    const client = await this.findRepoClient(owner, repository);
+    await client.issues.createComment({
+      owner,
+      repo: repository,
+      issue_number: issueNumber,
+      body,
+    });
   }
 }

@@ -7,6 +7,7 @@ import { createNodeMiddleware } from "@octokit/webhooks";
 import { createLogger } from "./lib/basic-logger";
 import { env } from "./lib/env";
 import { initIssueCrawler } from "./lib/issue-crawler";
+import { lintTypescript, startTypescriptServer } from "./lib/lint/ts";
 
 const app = express();
 const middlewareLogger = createLogger("express.js");
@@ -45,6 +46,10 @@ app.use("/task", taskRouter);
 
 // setupIssueCrawlerCronJob();
 initIssueCrawler();
+
+await startTypescriptServer();
+
+// console.log(await lintTypescript("./projects/test-repo/src/routes/todo.ts"));
 
 app.listen(5001, () => {
   console.log("Server is running on port 5001");

@@ -1,11 +1,24 @@
 import fs from "fs/promises";
 import path from "path";
-import { ToolCallParams, ToolResult, ToolName } from "@/llm/llm-tools";
+import { ToolCallParams, ToolResult, ToolName } from "@/types/llm-tools";
 import { TerminalService } from "./terminal";
 import { FunctionTool, Tool } from "openai/resources/responses/responses";
-import { isValidTool } from "../tools-json";
+import {
+  MAX_TERMINAL_INACTIVE_TIME,
+  MAX_TERMINAL_BG_COMMAND_TIME,
+  uriParam,
+  paginationParam,
+  replaceTool_description,
+  cwdHelper,
+  terminalDescHelper,
+} from "../constants";
 import { EditCodeService } from "./editcode";
 import { URI } from "vscode-uri";
+import {
+  LintTypescriptDiagnostic,
+  LintTypescriptResponse,
+} from "@/lib/lint/ts";
+import { lint } from "@/lib/lint";
 
 export class ToolsService {
   private workspacePath: string;
@@ -24,11 +37,27 @@ export class ToolsService {
     this.editCodeService = editCodeService;
   }
 
+  private async lint(
+    filePath: string
+  ): Promise<LintTypescriptDiagnostic[] | undefined> {
+    const lintResponse = await lint(filePath);
+    return lintResponse
+      ? [
+          ...lintResponse.syntaxDiag.diagnostics,
+          ...lintResponse.semanticDiag.diagnostics,
+        ]
+      : undefined;
+  }
+
   private resolvePath(filePath: string): string {
     if (filePath.startsWith(this.originalWorkspacePath)) {
       console.log("LLM used original workspace path");
       //help it out a bit
       filePath = filePath.replace(this.originalWorkspacePath, ".");
+    } else if (filePath.startsWith("/")) {
+      throw new Error(
+        "Absolute paths are not allowed. Please use relative paths."
+      );
     }
     const resolvedPath = path.resolve(this.workspacePath, filePath);
     if (!resolvedPath.startsWith(this.workspacePath)) {
@@ -185,8 +214,11 @@ export class ToolsService {
   async readLintErrors(
     params: ToolCallParams["read_lint_errors"]
   ): Promise<ToolResult["read_lint_errors"]> {
-    // This is a placeholder - in a real implementation, you would integrate with a linter
-    return { errors: [] };
+    const filePath = this.resolvePath(params.uri);
+    const lintResponse = await this.lint(filePath);
+    return {
+      errors: lintResponse ?? [],
+    };
   }
 
   async createFileOrFolder(
@@ -228,7 +260,11 @@ export class ToolsService {
   ): Promise<ToolResult["rewrite_file"]> {
     const filePath = this.resolvePath(params.uri);
     await fs.writeFile(filePath, params.new_content, "utf-8");
-    return { success: true };
+    const lintResponse = await this.lint(filePath);
+    return {
+      success: true,
+      lintErrors: lintResponse,
+    };
   }
 
   private async getURI(path: string) {
@@ -253,7 +289,11 @@ export class ToolsService {
       search_replace_blocks,
       model
     );
-    return { success: true };
+    const lintResponse = await this.lint(uriObj.fsPath);
+    return {
+      success: true,
+      lintErrors: lintResponse,
+    };
   }
 
   async runCommand(
@@ -371,234 +411,241 @@ export class ToolsService {
         return this.killPersistentTerminal(
           params as ToolCallParams["kill_persistent_terminal"]
         ) as Promise<ToolResult[T]>;
+      case "ask_for_help":
+        const p = params as ToolCallParams["ask_for_help"];
+        // TODO: Implement ask_for_help
+        console.log("Asked for help with query: ", p.query);
+        return {
+          response: "Help requested",
+        } as ToolResult[T];
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
   }
 }
 
-//due to openai, all tool parameters have to be required.
-export const toolJSON: FunctionTool[] = [
-  {
-    type: "function",
+export const toolJSON2 = {
+  read_file: {
     name: "read_file",
-    strict: true,
-    description: "Read content from a file",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the file" },
-        start_line: {
-          type: "number",
-          description: "Starting line number (1-based)",
-        },
-        end_line: {
-          type: "number",
-          description: "Ending line number (1-based)",
-        },
-        page_number: {
-          type: "number",
-          description: "Page number for pagination",
-        },
+    description: `Returns full contents of a given file.`,
+    params: {
+      ...uriParam("file"),
+      start_line: {
+        description:
+          "Optional. Do NOT fill this field in unless you were specifically given exact line numbers to search. Defaults to the beginning of the file.",
       },
-      additionalProperties: false,
-      required: ["uri", "start_line", "end_line", "page_number"],
+      end_line: {
+        description:
+          "Optional. Do NOT fill this field in unless you were specifically given exact line numbers to search. Defaults to the end of the file.",
+      },
+      ...paginationParam,
     },
   },
-  {
-    type: "function",
+
+  ls_dir: {
     name: "ls_dir",
-    strict: true,
-    description: "List files and directories in a given path",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the directory" },
-        page_number: {
-          type: "number",
-          description: "Page number for pagination",
-        },
+    description: `Lists all files and folders in the given URI.`,
+    params: {
+      uri: {
+        description: `Optional. The FULL path to the ${"folder"}. Leave this as empty or "" to search all folders.`,
       },
-      additionalProperties: false,
-      required: ["uri", "page_number"],
+      ...paginationParam,
     },
   },
-  {
-    type: "function",
+
+  get_dir_tree: {
     name: "get_dir_tree",
-    strict: true,
-    description: "Get a tree representation of a directory",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the directory" },
-      },
-      additionalProperties: false,
-      required: ["uri"],
+    description: `This is a very effective way to learn about your codebase. Returns a tree diagram of all the files and folders in the given folder. `,
+    params: {
+      ...uriParam("folder"),
     },
   },
-  {
-    type: "function",
+
+  // pathname_search: {
+  // 	name: 'pathname_search',
+  // 	description: `Returns all pathnames that match a given \`find\`-style query over the entire workspace. ONLY searches file names. ONLY searches the current workspace. You should use this when looking for a file with a specific name or path. ${paginationHelper.desc}`,
+
+  search_pathnames_only: {
     name: "search_pathnames_only",
-    strict: true,
-    description: "Search for files by name",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        include_pattern: {
-          type: "string",
-          description: "Pattern to include in search",
-        },
-        page_number: {
-          type: "number",
-          description: "Page number for pagination",
-        },
+    description: `Returns all pathnames that match a given query (searches ONLY file names). You should use this when looking for a file with a specific name or path.`,
+    params: {
+      query: { description: `Your query for the search.` },
+      include_pattern: {
+        description:
+          "Optional. Only fill this in if you need to limit your search because there were too many results.",
       },
-      additionalProperties: false,
-      required: ["query", "include_pattern", "page_number"],
+      ...paginationParam,
     },
   },
-  {
-    type: "function",
+
+  search_for_files: {
     name: "search_for_files",
-    strict: true,
-    description: "Search for files with regex support",
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string", description: "Search query" },
-        search_in_folder: {
-          type: "string",
-          description: "Folder to search in",
-        },
-        is_regex: {
-          type: "boolean",
-          description: "Whether to use regex matching",
-        },
-        page_number: {
-          type: "number",
-          description: "Page number for pagination",
-        },
+    description: `Returns a list of file names whose content matches the given query. The query can be any substring or regex.`,
+    params: {
+      query: { description: `Your query for the search.` },
+      search_in_folder: {
+        description:
+          "Optional. Leave as blank by default. ONLY fill this in if your previous search with the same query was truncated. Searches descendants of this folder only.",
       },
-      additionalProperties: false,
-      required: ["query", "search_in_folder", "is_regex", "page_number"],
+      is_regex: {
+        description:
+          "Optional. Default is false. Whether the query is a regex.",
+      },
+      ...paginationParam,
     },
   },
-  {
-    type: "function",
+
+  // add new search_in_file tool
+  search_in_file: {
     name: "search_in_file",
-    strict: true,
-    description: "Search for content within a file",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the file" },
-        query: { type: "string", description: "Search query" },
-        is_regex: {
-          type: "boolean",
-          description: "Whether to use regex matching",
-        },
+    description: `Returns an array of all the start line numbers where the content appears in the file.`,
+    params: {
+      ...uriParam("file"),
+      query: { description: "The string or regex to search for in the file." },
+      is_regex: {
+        description:
+          "Optional. Default is false. Whether the query is a regex.",
       },
-      additionalProperties: false,
-      required: ["uri", "query", "is_regex"],
     },
   },
-  {
-    type: "function",
+
+  read_lint_errors: {
     name: "read_lint_errors",
-    strict: true,
-    description: "Read linting errors for a file",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the file" },
-      },
-      additionalProperties: false,
-      required: ["uri"],
+    description: `Use this tool to view all the lint errors on a file.`,
+    params: {
+      ...uriParam("file"),
     },
   },
-  {
-    type: "function",
+
+  // --- editing (create/delete) ---
+
+  create_file_or_folder: {
     name: "create_file_or_folder",
-    strict: true,
-    description: "Create a new file or directory",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to create" },
-      },
-      additionalProperties: false,
-      required: ["uri"],
+    description: `Create a file or folder at the given path. To create a folder, the path MUST end with a trailing slash.`,
+    params: {
+      ...uriParam("file or folder"),
     },
   },
-  {
-    type: "function",
+
+  delete_file_or_folder: {
     name: "delete_file_or_folder",
-    strict: true,
-    description: "Delete a file or directory",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to delete" },
-        is_recursive: {
-          type: "boolean",
-          description: "Whether to delete recursively",
-        },
+    description: `Delete a file or folder at the given path.`,
+    params: {
+      ...uriParam("file or folder"),
+      is_recursive: {
+        description: "Optional. Return true to delete recursively.",
       },
-      additionalProperties: false,
-      required: ["uri", "is_recursive"],
     },
   },
-  {
-    type: "function",
-    name: "rewrite_file",
-    strict: true,
-    description: "Replace entire file content",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the file" },
-        new_content: {
-          type: "string",
-          description: "New content for the file",
-        },
-      },
-      additionalProperties: false,
-      required: ["uri", "new_content"],
-    },
-  },
-  {
-    type: "function",
+
+  edit_file: {
     name: "edit_file",
-    strict: true,
-    description: "Make targeted edits to a file",
-    parameters: {
-      type: "object",
-      properties: {
-        uri: { type: "string", description: "Path to the file" },
-        search_replace_blocks: {
-          type: "string",
-          description:
-            "JSON string of search-replace blocks. Each block has search, replace, and optional isRegex fields.",
-        },
+    description: `Edit the contents of a file. You must provide the file's URI as well as a SINGLE string of SEARCH/REPLACE block(s) that will be used to apply the edit.`,
+    params: {
+      ...uriParam("file"),
+      search_replace_blocks: {
+        description: replaceTool_description,
       },
-      additionalProperties: false,
-      required: ["uri", "search_replace_blocks"],
     },
   },
-  {
-    type: "function",
+
+  rewrite_file: {
+    name: "rewrite_file",
+    description: `Edits a file, deleting all the old contents and replacing them with your new contents. Use this tool if you want to edit a file you just created.`,
+    params: {
+      ...uriParam("file"),
+      new_content: {
+        description: `The new contents of the file. Must be a string.`,
+      },
+    },
+  },
+  run_command: {
+    name: "run_command",
+    description: `Runs a terminal command and waits for the result (times out after ${MAX_TERMINAL_INACTIVE_TIME}s of inactivity). ${terminalDescHelper}`,
+    params: {
+      command: { description: "The terminal command to run." },
+      cwd: { description: cwdHelper },
+    },
+  },
+
+  run_persistent_command: {
+    name: "run_persistent_command",
+    description: `Runs a terminal command in the persistent terminal that you created with open_persistent_terminal (results after ${MAX_TERMINAL_BG_COMMAND_TIME} are returned, and command continues running in background). ${terminalDescHelper}`,
+    params: {
+      command: { description: "The terminal command to run." },
+      persistent_terminal_id: {
+        description:
+          "The ID of the terminal created using open_persistent_terminal.",
+      },
+    },
+  },
+
+  open_persistent_terminal: {
+    name: "open_persistent_terminal",
+    description: `Use this tool when you want to run a terminal command indefinitely, like a dev server (eg \`npm run dev\`), a background listener, etc. Opens a new terminal in the your machine's environment which will not awaited for or killed.`,
+    params: {
+      cwd: { description: cwdHelper },
+    },
+  },
+
+  kill_persistent_terminal: {
+    name: "kill_persistent_terminal",
+    description: `Interrupts and closes a persistent terminal that you opened with open_persistent_terminal.`,
+    params: {
+      persistent_terminal_id: {
+        description: `The ID of the persistent terminal.`,
+      },
+    },
+  },
+  commit: {
     name: "commit",
-    strict: true,
-    description: "Call this tool when you're done with your task",
-    parameters: {
-      type: "object",
-      properties: {
-        message: { type: "string", description: "Commit message" },
+    description: `Commit your changes. This should be your final function call.`,
+    params: {
+      message: {
+        description: `The commit message. Max. 50 characters.`,
       },
-      additionalProperties: false,
-      required: ["message"],
+      description: {
+        description: `The commit description. Max. 1000 characters.`,
+      },
     },
   },
-];
+  ask_for_help: {
+    name: "ask_for_help",
+    description: `Ask a project manager for help. Use this when you are stuck, or need to know more about the project, or your task.`,
+    params: {
+      query: { description: "The query to ask for help." },
+    },
+  },
+} as {
+  [key: string]: {
+    name: string;
+    description: string;
+    params: Record<string, { description: string }>;
+  };
+};
+
+function getProperties(params: Record<string, { description: string }>) {
+  return Object.keys(params).reduce((acc, key) => {
+    acc[key] = { type: "string", description: params[key].description };
+    return acc;
+  }, {} as Record<string, { type: string; description: string }>);
+}
+
+export function isValidTool(name: string) {
+  return toolJSON2[name] !== undefined;
+}
+
+export function getToolJSON2(): FunctionTool[] {
+  return Object.values(toolJSON2).map((tool) => ({
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    parameters: {
+      type: "object",
+      properties: getProperties(tool.params),
+      required: Object.keys(tool.params),
+      additionalProperties: false,
+    },
+    strict: true,
+  }));
+}

@@ -89,6 +89,7 @@ export const tasks = pgTable("tasks", {
       "pending",
       "running",
       "awaiting_approval",
+      "awaiting_help",
       "complete",
       "error",
       "closed",
@@ -127,10 +128,11 @@ export const subTasks = pgTable("sub_tasks", {
   logFile: text("log_file").notNull(),
   currentOAIResponseId: text("current_oai_response_id"),
   status: varchar("status", {
-    enum: ["pending", "running", "complete", "killed"],
+    enum: ["pending", "running", "complete", "killed", "help_requested"],
   })
     .notNull()
     .default("pending"),
+  output: jsonb("output"),
   error: text("error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

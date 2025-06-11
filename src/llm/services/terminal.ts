@@ -122,7 +122,7 @@ export class TerminalService {
       terminal.once("spawn", () => {
         if (terminal.stdin?.writable) {
           try {
-            terminal.stdin.write(command + "\n");
+            terminal.stdin.write(command + "\nexit\n");
           } catch (error) {
             console.error(
               "error writing command to terminal",

@@ -6,7 +6,6 @@ import { ToolsService } from "./services/tools";
 import { EditCodeService } from "./services/editcode";
 import { TerminalService } from "./services/terminal";
 import { SubTaskRecord } from "@/types/db";
-import { TaskService } from "./task-service";
 export interface SubtaskInstance {
   context: {
     currentPrompt: string;
@@ -18,15 +17,21 @@ export interface SubtaskInstance {
   promise: Promise<void>;
 }
 
-interface LLMResult {
+export interface LLMResult {
+  type: "result";
   commitMessage: string;
   commitDescription: string;
 }
 
-type SubtaskCompleteCallback = (
+export interface LLMHelpRequest {
+  type: "help_request";
+  query: string;
+}
+
+export type SubtaskCompleteCallback = (
   subtask: SubTaskRecord,
   error: Error | null,
-  result: LLMResult | null
+  result: LLMResult | LLMHelpRequest | null
 ) => void;
 
 export class LLMScheduler {
@@ -83,7 +88,7 @@ export class LLMScheduler {
       .where(eq(subTasks.id, task.id))
       .returning();
 
-    const updatedSubtask = updatedSubtaskRecord[0];
+    const updatedSubtask = updatedSubtaskRecord[0] as SubTaskRecord;
 
     if (!updatedSubtask) {
       throw new Error(
@@ -104,7 +109,11 @@ export class LLMScheduler {
 
     subtask.promise = executeTask(subtask)
       .then((res) => {
-        this._onTaskComplete(subtask, null, res);
+        this._onTaskComplete(subtask, null, {
+          type: "result",
+          commitMessage: res.commitMessage,
+          commitDescription: res.commitDescription,
+        });
       })
       .catch((error) => {
         this._onTaskComplete(subtask, error, null);
@@ -130,6 +139,29 @@ export class LLMScheduler {
     } as SubtaskInstance["context"];
   }
 
+  private async _onLLMAskForHelp(subtask: SubtaskInstance, query: string) {
+    const updatedSubtaskRecord = await db
+      .update(subTasks)
+      .set({
+        status: "help_requested",
+      })
+      .where(eq(subTasks.id, subtask.subtask.id))
+      .returning();
+
+    const updatedSubtask = updatedSubtaskRecord[0] as SubTaskRecord;
+
+    if (!updatedSubtask) {
+      throw new Error(
+        `Error while updating subtask status to help_requested: Task ID: ${subtask.subtask.id}`
+      );
+    }
+
+    this.completeCallbacks.get(updatedSubtask.id)?.(updatedSubtask, null, {
+      type: "help_request",
+      query,
+    });
+  }
+
   private async _onTaskComplete(
     subtask: SubtaskInstance,
     error: Error | null,
@@ -148,7 +180,7 @@ export class LLMScheduler {
       .where(eq(subTasks.id, subtask.subtask.id))
       .returning();
 
-    const updatedSubtask = updatedSubtaskRecord[0];
+    const updatedSubtask = updatedSubtaskRecord[0] as SubTaskRecord;
 
     this.completeCallbacks.get(updatedSubtask.id)?.(
       updatedSubtask,

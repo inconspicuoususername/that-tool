@@ -125,15 +125,20 @@ async function crawlIssues(issueState: IssueState) {
     );
 
     try {
-      const repoClient = await serviceMesh.github.findRepoClient(o.repository.owner.login, o.repository.name);
+      const repoClient = await serviceMesh.github.findRepoClient(
+        o.repository.owner.login,
+        o.repository.name
+      );
       await repoClient.rest.issues.createComment({
         owner: o.repository.owner.login,
         repo: o.repository.name,
         issue_number: issue.number,
         body: `I'll get right on it!\n\nIssue ${issue.number} has been scheduled for a task.`,
       });
-    } catch(e) {
-      issueState.logger.error(`Failed to comment on issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Error: ${e}`);
+    } catch (e) {
+      issueState.logger.error(
+        `Failed to comment on issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Error: ${e}`
+      );
       return;
     }
 
@@ -149,7 +154,9 @@ async function crawlIssues(issueState: IssueState) {
       The issue is as follows:
       --------
       TITLE: ${issue.title}
-      LABELS: ${issue.labels.map((l) => (typeof l === "string" ? l : l.name)).join(", ")}
+      LABELS: ${issue.labels
+        .map((l) => (typeof l === "string" ? l : l.name))
+        .join(", ")}
       ISSUE NUMBER: ${issue.number}
       URL: ${issue.html_url}
       --------
@@ -168,19 +175,22 @@ async function crawlIssues(issueState: IssueState) {
       return;
     }
 
-    taskService.addOnSubtaskCompleteCallback(task.taskId, async (task, subtask, githubInfo) => {
-      issueState.logger.info(
-        `Subtask complete for ${o.repository.owner.login}/${o.repository.name}. Crawling issues.`
-      );
-      taskService.removeOnSubtaskCompleteCallback(task.id);
-      if (!githubInfo) {
-        issueState.logger.error(
-          `Failed to get github info for ${o.repository.owner.login}/${o.repository.name}. Skipping.`
+    taskService.addOnSubtaskCompleteCallback(
+      task.taskId,
+      async (task, subtask, githubInfo) => {
+        issueState.logger.info(
+          `Subtask complete for ${o.repository.owner.login}/${o.repository.name}. Crawling issues.`
         );
-        return;
+        taskService.removeOnSubtaskCompleteCallback(task.id);
+        if (!githubInfo) {
+          issueState.logger.error(
+            `Failed to get github info for ${o.repository.owner.login}/${o.repository.name}. Skipping.`
+          );
+          return;
+        }
+        crawlIssues(issueState);
       }
-      crawlIssues(issueState);
-    });
+    );
     // return {
     //   owner: o.repository.owner.login,
     //   repo: o.repository.name,
@@ -196,6 +206,8 @@ function setupIssueCrawlerCronJob(issueState: IssueState) {
   cron.start();
 }
 
+const flag = new Set<number>();
+
 export function createWebhook(
   issueState: IssueState
 ): HandlerFunction<"issues"> {
@@ -208,19 +220,25 @@ export function createWebhook(
       event.payload.action === "reopened" ||
       event.payload.action === "labeled"
     ) {
+      if (flag.has(event.payload.issue.number)) {
+        issueState.logger.info(
+          `Skipping issue ${event.payload.issue.number} because it has already been crawled.`
+        );
+        return;
+      }
+      flag.add(event.payload.issue.number);
       issueState.logger.info(
         `Crawling issues for ${event.payload.issue.number}`
       );
       await crawlIssues(issueState);
+      flag.delete(event.payload.issue.number);
     } else if (
       event.payload.action === "locked" ||
       event.payload.action === "closed"
     ) {
       const logString = `${event.payload.repository.owner.login}/${event.payload.repository.name}#${event.payload.issue.number}`;
       if (event.payload.issue.state_reason === "completed") {
-        issueState.logger.info(
-          `Issue ${logString} completed. Skipping.`
-        );
+        issueState.logger.info(`Issue ${logString} completed. Skipping.`);
         return;
       }
       // attempt to end task and remove PR

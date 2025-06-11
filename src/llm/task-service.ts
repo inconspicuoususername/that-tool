@@ -21,7 +21,7 @@ import {
 } from "@/types/db";
 import archiver from "archiver";
 import { shouldExcludeDirectory } from "./services/directory-tree";
-import { LLMScheduler } from "./llm-scheduler";
+import { LLMHelpRequest, LLMResult, LLMScheduler } from "./llm-scheduler";
 import { Logger } from "@/lib/basic-logger";
 import { HandlerFunction } from "@octokit/webhooks/dist-types/types";
 import { env } from "@/lib/env";
@@ -48,7 +48,7 @@ export class TaskService {
     await fs.mkdir(this.projectsRootDir, { recursive: true });
 
     this.logger.info("Registering webhook callback");
-    this.github.registerWebhookCallback(this.onPullRequestReview);
+    this.github.registerWebhookCallback(this.onWebhookHandler);
     this.logger.info("Initializing webhooks for incomplete tasks");
     await this._initAndRescheduleIncompleteTasks();
   }
@@ -57,14 +57,7 @@ export class TaskService {
     const incompleteTasks = await db
       .select()
       .from(tasks)
-      .where(
-        and(
-          not(eq(tasks.status, "complete")),
-          not(eq(tasks.status, "error")),
-          not(eq(tasks.status, "killed")),
-          not(eq(tasks.status, "closed"))
-        )
-      );
+      .where(or(eq(tasks.status, "running"), eq(tasks.status, "pending")));
 
     this.logger.info("Found", incompleteTasks.length, "incomplete tasks");
 
@@ -126,32 +119,33 @@ export class TaskService {
         throw error;
       }
 
-      if (!githubInfo.pullRequest) {
-        this.logger.warn(
-          "Task is malformed: No pull request found for task:",
-          task.id,
-          "killing task."
-        );
-        if (task.currentSubTaskId) {
-          await db
-            .update(subTasks)
-            .set({
-              error: "Task is malformed: No pull request found for task.",
-            })
-            .where(eq(subTasks.id, task.currentSubTaskId));
-        }
-        await this.killAndRemoveTask(task);
-        continue;
-      }
+      // if (!githubInfo.pullRequest) {
+      //   this.logger.warn(
+      //     "Task is malformed: No pull request found for task:",
+      //     task.id
+      //   );
+      //   if (task.currentSubTaskId) {
+      //     await db
+      //       .update(subTasks)
+      //       .set({
+      //         error: "Task is malformed: No pull request found for task.",
+      //       })
+      //       .where(eq(subTasks.id, task.currentSubTaskId));
+      //   }
+      //   await this.killAndRemoveTask(task);
+      //   continue;
+      // }
 
-      const currentSubTask = await db.query.subTasks.findFirst({
+      const currentSubTask = (await db.query.subTasks.findFirst({
         where: and(
           eq(subTasks.taskId, task.id),
           not(eq(subTasks.status, "complete"))
         ),
-      });
+      })) as SubTaskRecord;
 
       if (!currentSubTask) {
+        //The task never started, but we lost starting info. kill the task
+        await this.killAndRemoveTask(task);
         continue;
       }
 
@@ -172,11 +166,11 @@ export class TaskService {
 
     await db.delete(oaiResponses).where(eq(oaiResponses.subTaskId, subtask.id));
 
-    return subtaskRecord[0];
+    return subtaskRecord[0] as SubTaskRecord;
   }
 
-  private onPullRequestReview: HandlerFunction<
-    "pull_request_review" | "pull_request.closed"
+  private onWebhookHandler: HandlerFunction<
+    "pull_request_review" | "pull_request.closed" | "issue_comment"
   > = async (event) => {
     this.logger.info("Pull request review event received.");
     const dbtasks = await db
@@ -200,6 +194,8 @@ export class TaskService {
       }
       if (task?.type == "github") {
         if (
+          (event.name === "pull_request_review" ||
+            event.name === "pull_request") &&
           event.payload.pull_request.number === githubInfo.pullRequest?.number
         ) {
           if (event.name === "pull_request_review") {
@@ -229,9 +225,9 @@ export class TaskService {
                 "\n```\n\n" +
                 "Please fix the issues and commit your changes.";
 
-              const currentSubTask = await db.query.subTasks.findFirst({
+              const currentSubTask = (await db.query.subTasks.findFirst({
                 where: eq(subTasks.id, task.currentSubTaskId!),
-              });
+              })) as SubTaskRecord;
 
               if (!currentSubTask) {
                 throw new Error("Current subtask not found.");
@@ -257,6 +253,62 @@ export class TaskService {
                 this._onTaskClosed(task);
               }
             }
+          }
+        } else if (event.name === "issue_comment") {
+          this.logger.info("Issue comment event received");
+          const issueTasks = await db
+            .select()
+            .from(tasks)
+            .innerJoin(
+              taskGithubInfo,
+              eq(tasks.githubInfoId, taskGithubInfo.id)
+            )
+            .where(
+              and(
+                eq(taskGithubInfo.linkedIssueNumber, event.payload.issue.number)
+              )
+            );
+
+          if (issueTasks.length === 0) {
+            this.logger.warn(
+              "No task found for issue:",
+              event.payload.issue.number
+            );
+            continue;
+          }
+
+          const issueTask = issueTasks[0];
+
+          if (issueTask.tasks.status !== "awaiting_help") {
+            continue;
+          }
+
+          if (event.payload.comment.body.includes("@that-tool-agent")) {
+            const githubInfo =
+              issueTask.task_github_info as TaskGithubInfoRecord;
+
+            const currentSubTask = (await db.query.subTasks.findFirst({
+              where: eq(subTasks.id, issueTask.tasks.currentSubTaskId!),
+            })) as SubTaskRecord;
+
+            if (!currentSubTask) {
+              throw new Error("Current subtask not found.");
+            }
+
+            const newPrompt =
+              currentSubTask.prompt +
+              "\n\n" +
+              "You asked the following question: " +
+              event.payload.comment.body +
+              "\n\n";
+
+            const newSubTask = await this.createContinuationSubTask(
+              issueTask.tasks,
+              currentSubTask,
+              newPrompt
+            );
+            this.logger.info("Help answer received");
+            // this._onTaskHelpRequest(task);
           }
         }
       }
@@ -372,7 +424,7 @@ export class TaskService {
       })
       .returning();
 
-    return subTaskRecord[0];
+    return subTaskRecord[0] as SubTaskRecord;
   }
 
   private async createContinuationSubTask(
@@ -401,7 +453,7 @@ export class TaskService {
       })
       .where(eq(tasks.id, task.id));
 
-    return subTaskRecord[0];
+    return subTaskRecord[0] as SubTaskRecord;
   }
 
   public async addTask(startTask: StartTaskRequest) {
@@ -626,10 +678,7 @@ export class TaskService {
   public async onSubTaskComplete(
     subtask: SubTaskRecord,
     error: Error | null,
-    output: {
-      commitMessage: string;
-      commitDescription: string;
-    } | null
+    output: LLMResult | LLMHelpRequest | null
   ) {
     this.llmScheduler.removeCompleteCallback(subtask.id);
     this.logger.info("On task complete:", subtask.id, error, output);
@@ -668,8 +717,37 @@ export class TaskService {
         throw new Error("Github info not found. Malformed task.");
       }
 
+      if (output?.type === "help_request") {
+        this.logger.info("Help request received:", output.query);
+        await db
+          .update(tasks)
+          .set({
+            status: "awaiting_help",
+          })
+          .where(eq(tasks.id, task.id));
+
+        //write comment on linked issue
+        if (githubInfo.linkedIssueNumber) {
+          await this.github.createComment({
+            owner: githubInfo.owner,
+            repository: githubInfo.repo,
+            issueNumber: githubInfo.linkedIssueNumber,
+            body:
+              "I have encountered an issue with the following task: " +
+              "\n\n```\n" +
+              task.currentPrompt +
+              "\n```\n\n" +
+              "My issue is: " +
+              "\n\n```\n" +
+              output.query +
+              "\n```\n\n" +
+              "\n\nPlease help me fix the issue. I am waiting for your response.",
+          });
+        }
+        return;
+      }
+
       if (!githubInfo.pullRequest) {
-        const branch = githubInfo.targetBranch;
         this.logger.info("Creating branch:", githubInfo.targetBranch);
         await this.github.createBranch(
           subtask.workDir,
@@ -781,7 +859,7 @@ export class TaskService {
     callback: (
       task: TaskRecord,
       subtask: SubTaskRecord,
-      githubInfo?: TaskGithubInfoRecord,
+      githubInfo?: TaskGithubInfoRecord
     ) => Promise<void>
   ) {
     if (this.onSubtaskCompleteCallbacks.has(taskId)) {

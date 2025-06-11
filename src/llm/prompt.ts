@@ -1,18 +1,13 @@
-import { EditCodeService } from "@/llm/services/editcode";
-import { TerminalService } from "@/llm/services/terminal";
-import { ToolsService } from "@/llm/services/tools";
-
 import { openai } from "@/llm/openai";
-import { getToolJSON2 } from "@/llm/tools-json";
+import { getToolJSON2 } from "@/llm/services/tools";
 import { getSystemMessage } from "@/llm/system_prompt";
 import { readLineAsync } from "@/util";
 
 import fs from "fs/promises";
 import OpenAI from "openai";
-import { TaskRecord } from "@/types/db";
 import { env } from "@/lib/env";
 import { db } from "@/lib/db";
-import { oaiResponses, subTasks, tasks } from "@/lib/db/schema";
+import { oaiResponses, subTasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { SubtaskInstance } from "./llm-scheduler";
 import { createLogger } from "@/lib/basic-logger";

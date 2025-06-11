@@ -22,7 +22,19 @@ export const taskGithubInfoSchema = createSelectSchema(taskGithubInfo).extend({
     })
     .nullable(),
 });
-export const subTasksSchema = createSelectSchema(subTasks);
+export const subTasksSchema = createSelectSchema(subTasks).extend({
+  output: z.union([
+    z.object({
+      type: z.literal("help_request"),
+      query: z.string(),
+    }),
+    z.object({
+      type: z.literal("tool_result"),
+      toolName: z.string(),
+      result: z.any(),
+    }),
+  ]),
+});
 export const oaiResponsesSchema = createSelectSchema(oaiResponses);
 
 export type ProjectRecord = z.infer<typeof projectsSchema>;
