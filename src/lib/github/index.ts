@@ -2,8 +2,8 @@ import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
 import simpleGit, { SimpleGit } from "simple-git";
 import { HandlerFunction } from "@octokit/webhooks/dist-types/types";
-import { Logger } from "@/lib/basic-logger";
 import { sleep } from "openai/core";
+import winston from "winston";
 
 export class GithubInstallationError extends Error {
   constructor(message: string) {
@@ -16,8 +16,18 @@ export class GitHubWrapper {
   private git: SimpleGit;
   public githubApp: App;
 
+  private _appName: string = "";
+
+  public get appName() {
+    return this._appName;
+  }
+
+  public get githubUsername() {
+    return this._appName + "[bot]";
+  }
+
   constructor(
-    private logger: Logger,
+    private logger: winston.Logger,
     private privateKey: string,
     private appId: string,
     private webhookSecret: string
@@ -25,6 +35,7 @@ export class GitHubWrapper {
     this.git = simpleGit();
 
     this.logger.info("Setting up GitHub app");
+
     this.githubApp = new App({
       appId: this.appId,
       privateKey: this.privateKey,
@@ -34,21 +45,26 @@ export class GitHubWrapper {
       Octokit: Octokit.defaults({}),
     });
 
-    this.test();
-  }
+    this.logger.info("Looking up app name");
+    this.githubApp.octokit
+      .request("GET /app", {})
+      .then((res) => {
+        this._appName = res.data?.name ?? "that-tool-agent";
+        this.logger.info("App name:", this._appName);
 
-  public registerWebhookCallback(
-    webhookCallback: HandlerFunction<
-      "pull_request_review" | "pull_request.closed" | "issue_comment"
-    >
-  ) {
-    this.logger.info(
-      "Registering new webhook callback for pull_request_review"
-    );
-    this.githubApp.webhooks.on(
-      ["pull_request_review", "pull_request.closed", "issue_comment"],
-      webhookCallback
-    );
+        if (this._appName === "") {
+          this.logger.error(
+            "Unable to resolve app name through Github API. Exiting."
+          );
+          throw new Error("App name not found through Github API");
+        }
+      })
+      .catch((err) => {
+        this.logger.error("Error looking up app name:", err);
+        throw err;
+      });
+
+    // this.test();
   }
 
   getURL(token: string, repo: string, owner: string) {
@@ -63,7 +79,7 @@ export class GitHubWrapper {
       owner,
       repo,
     });
-    console.log(pullRequests);
+    this.logger.info("Pull requests:", { pullRequests });
   }
 
   private async getInstallationID(owner: string, repo: string) {
@@ -103,6 +119,17 @@ export class GitHubWrapper {
     await this.git.clone(this.getURL(token, repo, owner), targetDir);
   }
 
+  async pullRepo(
+    repo: string,
+    owner: string,
+    targetDir: string
+  ): Promise<void> {
+    this.logger.info("Pulling repo:", owner, repo);
+    const token = await this.getInstallationToken(owner, repo);
+    this.logger.info("Pulling repo:", owner, repo);
+    await this.git.pull(this.getURL(token, repo, owner), targetDir);
+  }
+
   async checkoutBranch(repoPath: string, branchName: string): Promise<void> {
     this.logger.info("Checking out branch:", branchName, "in repo:", repoPath);
     const repo = simpleGit(repoPath);
@@ -116,7 +143,8 @@ export class GitHubWrapper {
       owner: string;
       repo: string;
     }
-  ): Promise<void> {
+  ): Promise<boolean> {
+    //true -> branch already exists, false -> branch created
     const client = await this.findRepoClient(original.owner, original.repo);
     try {
       const branch = await client.rest.repos.getBranch({
@@ -125,24 +153,25 @@ export class GitHubWrapper {
         branch: branchName,
       });
       this.logger.info("Branch already exists:", branchName);
-      this.logger.info("Deleting branch:", branchName);
-      await client.rest.git.deleteRef({
-        owner: original.owner,
-        repo: original.repo,
-        ref: `heads/${branchName}`,
-      });
+      // this.logger.info("Deleting branch:", branchName);
+      // await client.rest.git.deleteRef({
+      //   owner: original.owner,
+      //   repo: original.repo,
+      //   ref: `heads/${branchName}`,
+      // });
     } catch (e) {
       const err = e as Error;
       if (err.message.includes("Branch not found")) {
         this.logger.info("Branch not found. Creating branch:", branchName);
+        this.logger.info("Creating branch:", branchName, "in repo:", repoPath);
+        const repo = simpleGit(repoPath);
+        await repo.checkoutLocalBranch(branchName);
+        return false;
       } else {
         throw e;
       }
     }
-
-    this.logger.info("Creating branch:", branchName, "in repo:", repoPath);
-    const repo = simpleGit(repoPath);
-    await repo.checkoutLocalBranch(branchName);
+    return true;
   }
 
   async commitAndPush(

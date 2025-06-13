@@ -9,6 +9,7 @@ import {
   serial,
   integer,
 } from "drizzle-orm/pg-core";
+import { LLMHelpRequest, LLMResult } from "@/types/llm-scheduler";
 
 const schema = pgSchema("ttl_agent");
 const pgTable = schema.table;
@@ -64,8 +65,6 @@ export const projects = pgTable("projects", {
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   projectId: uuid("project_id").notNull(),
-  initialPrompt: text("initial_prompt").notNull(),
-  currentPrompt: text("current_prompt").notNull(),
   webhookURL: text("webhook_url"),
   // owner: string;
   // repo: string;
@@ -106,6 +105,19 @@ export const tasks = pgTable("tasks", {
     .$onUpdate(() => new Date()),
 });
 
+/*
+
+pullRequest: z
+    .object({
+      id: z.number(),
+      number: z.number(),
+      state: z.string(),
+      title: z.string(),
+      body: z.string().nullable(),
+      url: z.string(),
+    })
+    .nullable(),
+    */
 export const taskGithubInfo = pgTable("task_github_info", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id").references(() => tasks.id),
@@ -113,9 +125,30 @@ export const taskGithubInfo = pgTable("task_github_info", {
   repo: text("repo").notNull(),
   startBranch: text("start_branch").notNull(),
   targetBranch: text("target_branch").notNull(),
-  pullRequest: jsonb("pull_request"),
+  pullRequest: jsonb("pull_request").$type<{
+    id: number;
+    number: number;
+    state: string;
+    title: string;
+    body: string | null;
+    url: string;
+  }>(),
   linkedIssueNumber: integer("linked_issue_number"),
 });
+
+/*
+output: z.union([
+    z.object({
+      type: z.literal("help_request"),
+      query: z.string(),
+    }),
+    z.object({
+      type: z.literal("tool_result"),
+      toolName: z.string(),
+      result: z.any(),
+    }),
+  ]),
+*/
 
 export const subTasks = pgTable("sub_tasks", {
   id: serial("id").primaryKey(),
@@ -128,11 +161,12 @@ export const subTasks = pgTable("sub_tasks", {
   logFile: text("log_file").notNull(),
   currentOAIResponseId: text("current_oai_response_id"),
   status: varchar("status", {
-    enum: ["pending", "running", "complete", "killed", "help_requested"],
+    enum: ["pending", "running", "complete", "killed"],
   })
     .notNull()
     .default("pending"),
-  output: jsonb("output"),
+  previousSubTaskId: integer("previous_sub_task_id"),
+  output: jsonb("output").$type<LLMResult | LLMHelpRequest>(),
   error: text("error"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")

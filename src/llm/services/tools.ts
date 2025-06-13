@@ -25,6 +25,7 @@ export class ToolsService {
   private terminalService: TerminalService;
   private originalWorkspacePath: string;
   private editCodeService: EditCodeService;
+  private workspaceName: string;
 
   constructor(
     workspacePath: string,
@@ -33,6 +34,14 @@ export class ToolsService {
   ) {
     this.originalWorkspacePath = workspacePath;
     this.workspacePath = path.resolve(process.cwd(), workspacePath);
+    const workspaceName = this.workspacePath
+      .replace(/\/$/, "")
+      .split("/")
+      .pop();
+    if (!workspaceName) {
+      throw new Error("Workspace name not found");
+    }
+    this.workspaceName = workspaceName;
     this.terminalService = terminalService;
     this.editCodeService = editCodeService;
   }
@@ -58,6 +67,8 @@ export class ToolsService {
       throw new Error(
         "Absolute paths are not allowed. Please use relative paths."
       );
+    } else if (filePath.startsWith(this.workspaceName)) {
+      filePath = filePath.replace(this.workspaceName, ".");
     }
     const resolvedPath = path.resolve(this.workspacePath, filePath);
     if (!resolvedPath.startsWith(this.workspacePath)) {
@@ -411,13 +422,6 @@ export class ToolsService {
         return this.killPersistentTerminal(
           params as ToolCallParams["kill_persistent_terminal"]
         ) as Promise<ToolResult[T]>;
-      case "ask_for_help":
-        const p = params as ToolCallParams["ask_for_help"];
-        // TODO: Implement ask_for_help
-        console.log("Asked for help with query: ", p.query);
-        return {
-          response: "Help requested",
-        } as ToolResult[T];
       default:
         throw new Error(`Unknown tool: ${name}`);
     }

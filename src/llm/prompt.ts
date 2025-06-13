@@ -3,16 +3,21 @@ import { getToolJSON2 } from "@/llm/services/tools";
 import { getSystemMessage } from "@/llm/system_prompt";
 import { readLineAsync } from "@/util";
 
-import fs from "fs/promises";
 import OpenAI from "openai";
 import { env } from "@/lib/env";
 import { db } from "@/lib/db";
 import { oaiResponses, subTasks } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { SubtaskInstance } from "./llm-scheduler";
-import { createLogger } from "@/lib/basic-logger";
+import {
+  LLMHelpRequest,
+  LLMResult,
+  SubtaskInstance,
+} from "@/types/llm-scheduler";
+import { createDefaultWinstonLogger } from "@/lib/basic-logger";
 
-export async function executeTask(task: SubtaskInstance) {
+export async function executeTask(
+  task: SubtaskInstance
+): Promise<LLMResult | LLMHelpRequest> {
   // // Initialize tools
   // const terminalService = new TerminalService(taskRecord.workDir);
   // const editCodeService = new EditCodeService();
@@ -27,35 +32,98 @@ export async function executeTask(task: SubtaskInstance) {
   // const taskRecord = task.dbRecord;
 
   // Function to log messages
-  const logger = createLogger("Agent");
-  async function log(message: string) {
-    const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${message}\n`;
-    logger.info(logMessage);
-    await fs.appendFile(task.subtask.logFile, logMessage);
-  }
+  // const logger = createLogger("Agent");
+  const logger = createDefaultWinstonLogger("Agent", task.subtask.logFile);
 
   // Initialize conversation history
-  let messages: OpenAI.Responses.ResponseInput = [
-    //     {
-    //       role: "system",
-    //       content: `You are a software engineer. Your job is to accomplish the task you are given by a project manager.
-    // Follow the instructions strictly.
-    // You are restricted to working within the workspace directory: ${workspacePath}
-    // You should think step by step about how to accomplish the task.
-    // Continue until the task is complete.`,
-    //     },
-    {
-      role: "user",
-      content: task.context.currentPrompt,
-    },
-  ];
+  let messages: OpenAI.Responses.ResponseInput = [];
 
-  await log("Begin task execution.");
-  await log(`Task: ${task.context.currentPrompt}`);
-  await log(`Workspace path: ${task.subtask.workDir}`);
+  logger.info("Begin task execution.");
+  logger.info(`Task: ${task.context.currentPrompt}`);
+  logger.info(`Workspace path: ${task.subtask.workDir}`);
 
   let previousResponseId: string | undefined;
+  let toolCalls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
+
+  if (task.subtask.previousSubTaskId) {
+    logger.info(
+      `Previous subtask id: ${task.subtask.previousSubTaskId}. Looking for previous response id.`
+    );
+    const previousTask = await db.query.subTasks.findFirst({
+      where: eq(subTasks.id, task.subtask.previousSubTaskId),
+    });
+    if (previousTask) {
+      previousResponseId = previousTask.currentOAIResponseId ?? undefined;
+      logger.info(
+        `Previous response id: ${previousResponseId}. Found in previous subtask.`
+      );
+
+      if (!previousResponseId) {
+        throw new Error("No previous response id found");
+      }
+
+      //if we're using a previous response, we need to add the output for previous calls
+      // this is either 'commit', or 'ask_for_help' depending on how the previous subtask ended
+      const previousResponse = await openai.responses.retrieve(
+        previousResponseId
+      );
+
+      //in case any previous tool calls were not evaluated, we need to add them to the messages
+      toolCalls = previousResponse.output.filter(
+        (x) =>
+          x.type === "function_call" &&
+          x.name !== "commit" &&
+          x.name !== "ask_for_help"
+      ) as OpenAI.Responses.ResponseFunctionToolCall[];
+
+      const commitCall = previousResponse.output.find(
+        (x) => x.type === "function_call" && x.name === "commit"
+      ) as OpenAI.Responses.ResponseFunctionToolCall | undefined;
+      const askForHelpCall = previousResponse.output.find(
+        (x) => x.type === "function_call" && x.name === "ask_for_help"
+      ) as OpenAI.Responses.ResponseFunctionToolCall | undefined;
+
+      if (previousTask.output?.type === "tool_result") {
+        if (!commitCall) {
+          throw new Error("No commit call found");
+        }
+
+        messages.push({
+          type: "function_call_output" as const,
+          call_id: commitCall.call_id,
+          output: JSON.stringify({
+            success: true,
+          }),
+        });
+
+        messages.push({
+          role: "user",
+          content: task.context.currentPrompt,
+        });
+      } else if (previousTask.output?.type === "help_request") {
+        if (!askForHelpCall) {
+          throw new Error("No ask for help call found");
+        }
+
+        messages.push({
+          type: "function_call_output" as const,
+          call_id: askForHelpCall.call_id,
+          output: JSON.stringify({
+            answer: task.subtask.prompt,
+          }),
+        });
+      }
+    } else {
+      logger.warn(
+        `Previous subtask not found. Continuing without previous response id.`
+      );
+    }
+  } else {
+    messages.push({
+      role: "user",
+      content: task.context.currentPrompt,
+    });
+  }
 
   await db
     .update(subTasks)
@@ -66,14 +134,78 @@ export async function executeTask(task: SubtaskInstance) {
 
   // Main loop
   while (true) {
+    // // If no tool calls, check if task is complete
+    const help = toolCalls.find((x) => x.name === "ask_for_help");
+    if (help) {
+      logger.info("Tool call 'ask_for_help' found. Model has requested help.");
+      return {
+        type: "help_request",
+        query: JSON.parse(help.arguments).query,
+      };
+    }
+    const commit = toolCalls.find((x) => x.name === "commit");
+    if (commit) {
+      logger.info(
+        "Tool call 'commit' found. Model has completed the task successfully."
+      );
+      const commitMessage = JSON.parse(commit.arguments).message;
+      const commitDescription = JSON.parse(commit.arguments).description;
+      return {
+        type: "tool_result",
+        commitMessage: commitMessage as string,
+        commitDescription: commitDescription as string,
+      };
+    }
+
+    // Execute tool calls
+    // const toolResults: ToolCallResult[] = [];
+
+    for (const toolCall of toolCalls) {
+      logger.info(`Executing tool: ${toolCall.name}`);
+      try {
+        const params = JSON.parse(toolCall.arguments);
+        if (!tools.toolNameValid(toolCall.name)) {
+          throw new Error(`Invalid tool name: ${toolCall.name}`);
+        }
+        logger.info(
+          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
+        );
+        if (env.shouldAskForTool) {
+          //ask for approval from stdin
+          console.log("Tool execution approved? (y/n)");
+          const line = await readLineAsync();
+          if (line.toLowerCase() !== "y") {
+            logger.warn("Tool execution cancelled");
+            continue;
+          }
+        }
+        const result = await tools.executeTool(toolCall.name, params);
+        logger.info(`Tool result: ${JSON.stringify(result, null, 2)}`);
+
+        messages.push({
+          type: "function_call_output" as const,
+          // id: cr.id,
+          call_id: toolCall.call_id,
+          output: JSON.stringify(result),
+        });
+      } catch (error) {
+        logger.error(`Tool error: ${error}`, { error: error as Error });
+        messages.push({
+          type: "function_call_output" as const,
+          call_id: toolCall.call_id,
+          output: JSON.stringify({ error: (error as Error).message }),
+        });
+      }
+    }
+
     const instructions = await getSystemMessage({
       directoryPath: task.subtask.workDir,
       persistentTerminalIDs: terminalService.getTerminalIDs(),
     });
 
-    // await log(`System prompt: ${instructions}`);
+    // logger.info(`System prompt: ${instructions}`);
     // Get response from LLM
-    await log(`Calling OpenAI API with model ${task.subtask.modelName}`);
+    logger.info(`Calling OpenAI API with model ${task.subtask.modelName}`);
     const apiResponse = await openai.responses.create({
       model: task.subtask.modelName,
       input: messages,
@@ -83,7 +215,7 @@ export async function executeTask(task: SubtaskInstance) {
       previous_response_id: previousResponseId,
     });
 
-    await log(`OpenAI API response recieved.`);
+    logger.info(`OpenAI API response recieved.`);
 
     await db.insert(oaiResponses).values({
       id: apiResponse.id,
@@ -111,7 +243,7 @@ export async function executeTask(task: SubtaskInstance) {
     if (reasoning.length > 0) {
       for (const res of reasoning) {
         for (const item of res.summary) {
-          await log(`Model reasoning: ${item.text}`);
+          logger.info(`Model reasoning: ${item.text}`);
         }
       }
     }
@@ -121,69 +253,19 @@ export async function executeTask(task: SubtaskInstance) {
     for (const msg of txtMsg) {
       for (const content of msg.content) {
         if (content.type === "output_text") {
-          await log(`Model message: ${content.text}`);
+          logger.info(`Model message: ${content.text}`);
         } else {
-          await log("Model refused to respond!");
-          await log(`Model refusal: ${content.refusal}`);
+          logger.warn("Model refused to respond!");
+          logger.warn(`Model refusal: ${content.refusal}`);
           process.exit(1);
         }
       }
     }
 
-    // // If no tool calls, check if task is complete
-    const toolCalls = response.filter((x) => x.type === "function_call");
-    const commit = toolCalls.find((x) => x.name === "commit");
-    if (commit) {
-      await log(
-        "Tool call 'commit' found. Model has completed the task successfully."
-      );
-      const commitMessage = JSON.parse(commit.arguments).message;
-      const commitDescription = JSON.parse(commit.arguments).description;
-      return {
-        commitMessage: commitMessage as string,
-        commitDescription: commitDescription as string,
-      };
-    }
+    toolCalls = response.filter((x) => x.type === "function_call");
 
-    // Execute tool calls
-    // const toolResults: ToolCallResult[] = [];
-
-    for (const toolCall of toolCalls) {
-      await log(`Executing tool: ${toolCall.name}`);
-      try {
-        const params = JSON.parse(toolCall.arguments);
-        if (!tools.toolNameValid(toolCall.name)) {
-          throw new Error(`Invalid tool name: ${toolCall.name}`);
-        }
-        await log(
-          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
-        );
-        if (env.shouldAskForTool) {
-          //ask for approval from stdin
-          console.log("Tool execution approved? (y/n)");
-          const line = await readLineAsync();
-          if (line.toLowerCase() !== "y") {
-            await log("Tool execution cancelled");
-            continue;
-          }
-        }
-        const result = await tools.executeTool(toolCall.name, params);
-        await log(`Tool result: ${JSON.stringify(result, null, 2)}`);
-
-        messages.push({
-          type: "function_call_output" as const,
-          // id: cr.id,
-          call_id: toolCall.call_id,
-          output: JSON.stringify(result),
-        });
-      } catch (error) {
-        await log(`Tool error: ${error}`);
-        messages.push({
-          type: "function_call_output" as const,
-          call_id: toolCall.call_id,
-          output: JSON.stringify({ error: (error as Error).message }),
-        });
-      }
+    if (toolCalls.length === 0) {
+      throw new Error("No tool calls found.");
     }
   }
 }

@@ -1,9 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import { EventEmitter } from "events";
-import path from "path";
 import { MAX_TERMINAL_BG_COMMAND_TIME } from "../constants";
-import { cwd } from "process";
-import { string, number, boolean } from "zod";
 
 export class TerminalService {
   private persistentTerminals: Map<string, ChildProcess> = new Map();

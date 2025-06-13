@@ -1,6 +1,7 @@
 import { LLMScheduler } from "./llm-scheduler";
 import { TaskService } from "./task-service";
-import { createLogger } from "@/lib/basic-logger";
+import { IssueService } from "./issue-service";
+import { createDefaultWinstonLogger } from "@/lib/basic-logger";
 import { GitHubWrapper } from "@/lib/github";
 import { env } from "@/lib/env";
 import fs from "fs";
@@ -12,24 +13,28 @@ export function newServiceMesh(projectsRootDir: string, logsDir: string) {
   const webhookSecret = env.github.webhookSecret;
   // this.logger.info("Found PK file: ****");
   const github = new GitHubWrapper(
-    createLogger("GitHubWrapper"),
+    createDefaultWinstonLogger("GitHubWrapper", "github.log"),
     pk,
     appId,
     webhookSecret
   );
-  const llmScheduler = new LLMScheduler();
+  const llmScheduler = new LLMScheduler(
+    createDefaultWinstonLogger("LLMScheduler", "llm-scheduler.log")
+  );
   const taskService = new TaskService(
     projectsRootDir,
     logsDir,
     llmScheduler,
     github,
-    createLogger("TaskService")
+    createDefaultWinstonLogger("TaskService", "task-service.log")
   );
+  const issueService = new IssueService(github, taskService);
 
   return {
     taskService,
     llmScheduler,
     github,
+    issueService,
   };
 }
 

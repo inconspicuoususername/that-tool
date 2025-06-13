@@ -1,28 +1,50 @@
-export type Logger = {
-  log: (message: string, ...args: any[]) => void;
-  error: (message: string, ...args: any[]) => void;
-  warn: (message: string, ...args: any[]) => void;
-  info: (message: string, ...args: any[]) => void;
+import winston from "winston";
+import path from "path";
+import { env } from "./env";
+
+export const defaultWinstonFmt = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.json()
+);
+
+const formatMeta = (meta: any) => {
+  // You can format the splat yourself
+  const splat = meta[Symbol.for("splat")];
+  if (splat && splat.length) {
+    return splat.length === 1
+      ? JSON.stringify(splat[0])
+      : JSON.stringify(Array.isArray(splat) ? splat.join(" ") : splat);
+  }
+  return "";
 };
 
-export function createLogger(name: string): Logger {
-  return {
-    log: (message: string) =>
-      console.log(`[${new Date().toISOString()}] [${name}] ${message}`),
-    error: (message: string, ...args: any[]) =>
-      console.error(
-        `[${new Date().toISOString()}] [${name}] ${message}`,
-        ...args
-      ),
-    warn: (message: string, ...args: any[]) =>
-      console.warn(
-        `[${new Date().toISOString()}] [${name}] ${message}`,
-        ...args
-      ),
-    info: (message: string, ...args: any[]) =>
-      console.info(
-        `[${new Date().toISOString()}] [${name}] ${message}`,
-        ...args
-      ),
-  };
+const defaultWinstonConsoleFmt = winston.format.combine(
+  // winston.format.splat(),
+  winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
+    return `[${timestamp}] [${service}] [${level}] ${message} ${formatMeta(
+      meta
+    )}`;
+  }),
+  winston.format.colorize({ all: true })
+);
+
+export function createDefaultWinstonLogger(service: string, logfile: string) {
+  return winston.createLogger({
+    level: "info",
+    defaultMeta: {
+      service: service,
+    },
+    format: defaultWinstonFmt,
+    transports: [
+      new winston.transports.File({
+        filename: path.join(env.logDir, logfile),
+        level: "info",
+      }),
+      new winston.transports.Console({
+        format: defaultWinstonConsoleFmt,
+        forceConsole: true,
+        level: "debug",
+      }),
+    ],
+  });
 }

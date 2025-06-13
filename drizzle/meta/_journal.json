@@ -29,6 +29,27 @@
       "when": 1749057716361,
       "tag": "0003_smooth_betty_brant",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1749731280875,
+      "tag": "0004_crazy_robin_chapel",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1749819531287,
+      "tag": "0005_chubby_otto_octavius",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1749820020189,
+      "tag": "0006_parallel_black_widow",
+      "breakpoints": true
     }
   ]
 }

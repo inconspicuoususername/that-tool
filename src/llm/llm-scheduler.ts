@@ -6,38 +6,18 @@ import { ToolsService } from "./services/tools";
 import { EditCodeService } from "./services/editcode";
 import { TerminalService } from "./services/terminal";
 import { SubTaskRecord } from "@/types/db";
-export interface SubtaskInstance {
-  context: {
-    currentPrompt: string;
-    terminalService: TerminalService;
-    toolsService: ToolsService;
-    editCodeService: EditCodeService;
-  };
-  subtask: SubTaskRecord;
-  promise: Promise<void>;
-}
-
-export interface LLMResult {
-  type: "result";
-  commitMessage: string;
-  commitDescription: string;
-}
-
-export interface LLMHelpRequest {
-  type: "help_request";
-  query: string;
-}
-
-export type SubtaskCompleteCallback = (
-  subtask: SubTaskRecord,
-  error: Error | null,
-  result: LLMResult | LLMHelpRequest | null
-) => void;
+import {
+  SubtaskInstance,
+  SubtaskCompleteCallback,
+  LLMResult,
+  LLMHelpRequest,
+} from "@/types/llm-scheduler";
+import winston from "winston";
 
 export class LLMScheduler {
   private runningTasks: SubtaskInstance[] = [];
   private completeCallbacks: Map<number, SubtaskCompleteCallback> = new Map();
-  constructor() {}
+  constructor(private logger: winston.Logger) {}
 
   //   const task = {
   //     id: taskRecord[0].id,
@@ -96,7 +76,7 @@ export class LLMScheduler {
       );
     }
 
-    console.log("Executing task:", updatedSubtask);
+    this.logger.info("Executing task:", updatedSubtask);
     const context = this._setupTaskContext(
       updatedSubtask.workDir,
       updatedSubtask.prompt
@@ -109,11 +89,11 @@ export class LLMScheduler {
 
     subtask.promise = executeTask(subtask)
       .then((res) => {
-        this._onTaskComplete(subtask, null, {
-          type: "result",
-          commitMessage: res.commitMessage,
-          commitDescription: res.commitDescription,
-        });
+        if (res.type === "tool_result") {
+          this._onTaskComplete(subtask, null, res);
+        } else if (res.type === "help_request") {
+          this._onLLMAskForHelp(subtask, res);
+        }
       })
       .catch((error) => {
         this._onTaskComplete(subtask, error, null);
@@ -139,11 +119,15 @@ export class LLMScheduler {
     } as SubtaskInstance["context"];
   }
 
-  private async _onLLMAskForHelp(subtask: SubtaskInstance, query: string) {
+  private async _onLLMAskForHelp(
+    subtask: SubtaskInstance,
+    request: LLMHelpRequest
+  ) {
     const updatedSubtaskRecord = await db
       .update(subTasks)
       .set({
-        status: "help_requested",
+        status: "complete",
+        output: request,
       })
       .where(eq(subTasks.id, subtask.subtask.id))
       .returning();
@@ -156,10 +140,11 @@ export class LLMScheduler {
       );
     }
 
-    this.completeCallbacks.get(updatedSubtask.id)?.(updatedSubtask, null, {
-      type: "help_request",
-      query,
-    });
+    this.completeCallbacks.get(updatedSubtask.id)?.(
+      updatedSubtask,
+      null,
+      request
+    );
   }
 
   private async _onTaskComplete(
@@ -167,15 +152,16 @@ export class LLMScheduler {
     error: Error | null,
     result: LLMResult | null
   ) {
-    console.log("Task completed:", subtask);
-    console.log("Error:", error);
-    console.log("Result:", result);
+    this.logger.info("Task completed:", subtask);
+    this.logger.info("Error:", error);
+    this.logger.info("Result:", result);
 
     const updatedSubtaskRecord = await db
       .update(subTasks)
       .set({
         status: "complete",
         error: error?.message,
+        output: result ?? null,
       })
       .where(eq(subTasks.id, subtask.subtask.id))
       .returning();

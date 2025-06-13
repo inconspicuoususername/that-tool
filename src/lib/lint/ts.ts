@@ -1,57 +1,17 @@
 // used for calling language server protocol to lint typescript code
 
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
-import fs from "fs";
 import path from "path";
+import {
+  ActiveRequest,
+  LSPInput,
+  LSPResponse,
+  LSPEvent,
+  LSPEventReqComplete,
+} from "@/types/lint";
+import { logger } from ".";
 
 let server: ChildProcessWithoutNullStreams | null = null;
-
-interface LSPInput {
-  command: string;
-  arguments: any;
-  eventFilter?: (event: LSPEvent) => boolean;
-}
-
-interface LSPRequest {
-  seq: number;
-  type: string;
-  command: string;
-  arguments: any;
-}
-
-interface LSPResponse {
-  seq: number;
-  type: "response";
-  command: string;
-  request_seq: number;
-  success: boolean;
-  body?: any;
-}
-
-interface LSPEventReqComplete {
-  seq: number;
-  type: "event";
-  event: "requestCompleted";
-  body: {
-    request_seq: number;
-  };
-}
-
-interface LSPEvent {
-  seq: number;
-  type: "event";
-  event: string;
-  body: any;
-}
-
-interface ActiveRequest {
-  eventHandler?: {
-    events: LSPEvent[];
-    filter: (event: LSPEvent) => boolean;
-  };
-  request: LSPRequest;
-  callback: (response: LSPResponse, events: LSPEvent[]) => void;
-}
 
 const activeRequests: Map<number, ActiveRequest> = new Map();
 
@@ -81,11 +41,11 @@ function sendRequest(
   });
 
   const requestString = JSON.stringify(request);
-  console.info("sending request to tsserver:\n", requestString);
+  logger.info("sending request to tsserver", { requestString });
 
   server!.stdin.write(requestString + "\r\n", (e) => {
     if (e) {
-      console.log("Error", e);
+      logger.error("Error sending request to tsserver", { error: e });
     }
   });
 }
@@ -97,7 +57,7 @@ async function handleResponse(response: LSPResponse | LSPEventReqComplete) {
       : response.body.request_seq;
   const request = activeRequests.get(requestSeq);
   if (!request) {
-    console.log("Request not found", response);
+    logger.error("Request not found", { response });
     return;
   }
   const events = request.eventHandler?.events ?? [];
@@ -140,7 +100,7 @@ async function startTypescriptServer(): Promise<ChildProcessWithoutNullStreams> 
   );
 
   server.stdin.on("data", (data) => {
-    console.log("Data", data.toString());
+    logger.info("Data", { data: data.toString() });
   });
 
   // server.stdin.write(
@@ -156,7 +116,7 @@ async function startTypescriptServer(): Promise<ChildProcessWithoutNullStreams> 
   // );
 
   server.stdout.on("data", (data) => {
-    console.info("recieved stdout on tsserver:\n", data.toString() + "\n");
+    logger.info("recieved stdout on tsserver", { data: data.toString() });
     const dataChunks = data.toString().split("\r\n");
     const res = JSON.parse(dataChunks[dataChunks.length - 1]);
     if (res.type !== "response") {
@@ -178,19 +138,19 @@ async function startTypescriptServer(): Promise<ChildProcessWithoutNullStreams> 
   });
 
   server.stdout.on("end", () => {
-    console.log("End");
+    logger.info("End");
   });
   server.stdout.on("close", () => {
-    console.log("Close");
+    logger.info("Close");
   });
   server.stdout.on("error", () => {
-    console.log("Error");
+    logger.error("Error");
   });
   server.stdout.on("pause", () => {
-    console.log("Pause");
+    logger.info("Pause");
   });
   server.stdout.on("resume", () => {
-    console.log("Resume");
+    logger.info("Resume");
   });
   // server.stdout.on("readable", () => {
   //   console.log("Readable");
@@ -204,7 +164,7 @@ async function startTypescriptServer(): Promise<ChildProcessWithoutNullStreams> 
   // });
 
   server.stderr.on("data", (data) => {
-    console.log("Stderr data", data.toString());
+    logger.info("Stderr data", { data: data.toString() });
   });
   // server.stderr.on("end", () => {
   //   console.log("Stderr end");
@@ -324,7 +284,7 @@ async function lintTypescript(
   // server.stdin.end();
 
   // console.log("Result", result);
-  const fileContent = fs.readFileSync(filePath, "utf8");
+  // const fileContent = fs.readFileSync(filePath, "utf8");
 
   // await sendRequestAsync({
   //   command: "updateOpen",
@@ -380,6 +340,13 @@ async function lintTypescript(
 
   const syntaxDiag = events.filter((event) => event.event === "syntaxDiag");
   const semanticDiag = events.filter((event) => event.event === "semanticDiag");
+
+  await sendRequestAsync({
+    command: "close",
+    arguments: {
+      file: filePath,
+    },
+  });
 
   return {
     original: {

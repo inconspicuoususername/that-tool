@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { and, eq, not, or } from "drizzle-orm";
+import { and, eq, not, or, sql } from "drizzle-orm";
 import { existsSync } from "fs";
 import { GithubInstallationError, GitHubWrapper } from "@/lib/github/index";
 import {
@@ -9,7 +9,8 @@ import {
   taskGithubInfo,
   oaiResponses,
 } from "@/lib/db/schema";
-import { StartTaskRequest, GithubStartTaskRequest } from "@/types/api";
+import { StartTaskRequest } from "@/types/api";
+import { LLMResult, LLMHelpRequest } from "@/types/llm-scheduler";
 
 import fs from "fs/promises";
 import path from "path";
@@ -21,11 +22,10 @@ import {
 } from "@/types/db";
 import archiver from "archiver";
 import { shouldExcludeDirectory } from "./services/directory-tree";
-import { LLMHelpRequest, LLMResult, LLMScheduler } from "./llm-scheduler";
-import { Logger } from "@/lib/basic-logger";
+import { LLMScheduler } from "./llm-scheduler";
 import { HandlerFunction } from "@octokit/webhooks/dist-types/types";
 import { env } from "@/lib/env";
-import { info } from "console";
+import winston from "winston";
 
 export class TaskService {
   constructor(
@@ -33,24 +33,64 @@ export class TaskService {
     private logsDir: string,
     private llmScheduler: LLMScheduler,
     private github: GitHubWrapper,
-    private logger: Logger
+    private logger: winston.Logger
   ) {
     this._init();
   }
+
+  // private async test() {
+  //   const task = await db.query.tasks.findFirst({
+  //     where: eq(tasks.id, 51),
+  //   });
+
+  //   if (!task) {
+  //     throw new Error("Task not found");
+  //   }
+
+  //   const a = {
+  //     type: "help_request",
+  //     query: `I updated the type signature in the router.post method, but I'm still encountering type errors. The error indicates a mismatch and refers to properties missing from the expected 'Application' type. Can you provide guidance on how to resolve this issue?`,
+  //   };
+
+  //   const st = await this.createContinuationSubTask(
+  //     task,
+  //     `In response to your question, the PM said:
+
+  //     @You Hi, no problem. The issue seems to be the return statement in:
+
+  //     \`\`\`
+  //     if (!title || !description || !dueDate) {
+  //         return res.status(400).json({ error: 'Title, description, and dueDate are required.' });
+  //       }
+  //     \`\`\`
+
+  //     With the return statement, the function does not match the type signature of express' route handler. Without the return statement, the route handler should work.
+  //     Hope that helps!`
+  //   );
+
+  //   console.log(st);
+  // }
 
   private async _init() {
     // Create logs directory
     this.logger.info("Initializing TaskService");
 
-    this.logger.info("Creating logs directory:", this.logsDir);
+    this.logger.info("Creating logs directory:", { logsDir: this.logsDir });
     await fs.mkdir(this.logsDir, { recursive: true });
     this.logger.info("Creating projects root directory:", this.projectsRootDir);
     await fs.mkdir(this.projectsRootDir, { recursive: true });
 
-    this.logger.info("Registering webhook callback");
-    this.github.registerWebhookCallback(this.onWebhookHandler);
+    this.logger.info(
+      "Registering webhook callback on Github for pull_request_review and pull_request.closed"
+    );
+    this.github.githubApp.webhooks.on(
+      ["pull_request_review", "pull_request.closed"],
+      this.onWebhookHandler
+    );
     this.logger.info("Initializing webhooks for incomplete tasks");
     await this._initAndRescheduleIncompleteTasks();
+
+    // await this.test();
   }
 
   private async _initAndRescheduleIncompleteTasks() {
@@ -59,18 +99,10 @@ export class TaskService {
       .from(tasks)
       .where(or(eq(tasks.status, "running"), eq(tasks.status, "pending")));
 
-    this.logger.info("Found", incompleteTasks.length, "incomplete tasks");
+    this.logger.info("Found " + incompleteTasks.length + " incomplete tasks");
 
     for (const task of incompleteTasks) {
-      if (task.status === "running") {
-        this.logger.warn(
-          "Found running task that was never finalized. Killing task."
-        );
-
-        await this.killAndRemoveTask(task);
-
-        continue;
-      }
+      this.logger.info("Incomplete task:", task.id);
       if (task.type !== "github") {
         continue;
       }
@@ -83,12 +115,8 @@ export class TaskService {
         continue;
       }
 
-      this.logger.info(
-        "Registering reference to github client for task:",
-        task.id
-      );
-
       try {
+        this.logger.info("Checking github auth for task:", task.id);
         await this.github.checkAuth(githubInfo.owner, githubInfo.repo);
       } catch (error) {
         if (error instanceof GithubInstallationError) {
@@ -119,6 +147,8 @@ export class TaskService {
         throw error;
       }
 
+      this.logger.info("Github auth checked for task:", task.id);
+
       // if (!githubInfo.pullRequest) {
       //   this.logger.warn(
       //     "Task is malformed: No pull request found for task:",
@@ -136,30 +166,62 @@ export class TaskService {
       //   continue;
       // }
 
-      const currentSubTask = (await db.query.subTasks.findFirst({
-        where: and(
-          eq(subTasks.taskId, task.id),
-          not(eq(subTasks.status, "complete"))
-        ),
-      })) as SubTaskRecord;
-
-      if (!currentSubTask) {
-        //The task never started, but we lost starting info. kill the task
+      if (!task.currentSubTaskId) {
+        this.logger.warn("Task has no current subtask. Killing task.");
         await this.killAndRemoveTask(task);
         continue;
       }
 
-      const newSubtask = await this.resetSubtask(task, currentSubTask);
+      const currentSubTask = (await db.query.subTasks.findFirst({
+        where: and(
+          eq(subTasks.id, task.currentSubTaskId)
+          // not(eq(subTasks.status, "complete"))
+        ),
+      })) as SubTaskRecord;
 
-      this.llmScheduler.executeTask(newSubtask);
+      if (!currentSubTask) {
+        //The task never started, but we lost starting info. kill the task. if its a github task,
+        //the issue crawler will pick up the issue and create a new task anyways.
+        this.logger.warn(
+          "Task never started, but we lost starting info. Killing task."
+        );
+        await this.killAndRemoveTask(task);
+        continue;
+      }
+
+      if (currentSubTask.status === "complete") {
+        //we have entered a broken task state. this usually means that the worker process was killed as approval was
+        //given from a PR. it is recoverable, but not through the current webhook system, as prs would have to
+        //be crawled and checked for new responses
+        this.logger.warn(
+          "Task is running, but subtask is in complete state. This usually means that the worker process was killed as approval was given from a PR. It is recoverable, but not through the current webhook system, as PRs would have to be crawled and checked for new responses."
+        );
+        continue;
+      }
+
+      const { workDir, logFile } = await this.setupSubTask(task, githubInfo);
+
+      const newSubtask = await this.resetSubtask(
+        currentSubTask,
+        workDir,
+        logFile
+      );
+
+      this.scheduleSubTask(newSubtask);
     }
   }
 
-  private async resetSubtask(task: TaskRecord, subtask: SubTaskRecord) {
+  private async resetSubtask(
+    subtask: SubTaskRecord,
+    workDir: string,
+    logFile: string
+  ) {
     const subtaskRecord = await db
       .update(subTasks)
       .set({
         status: "pending",
+        workDir,
+        logFile,
       })
       .where(eq(subTasks.id, subtask.id))
       .returning();
@@ -170,163 +232,137 @@ export class TaskService {
   }
 
   private onWebhookHandler: HandlerFunction<
-    "pull_request_review" | "pull_request.closed" | "issue_comment"
+    "pull_request_review" | "pull_request.closed"
   > = async (event) => {
-    this.logger.info("Pull request review event received.");
-    const dbtasks = await db
-      .select()
-      .from(tasks)
-      .innerJoin(taskGithubInfo, eq(tasks.githubInfoId, taskGithubInfo.id))
-      .where(
-        and(
-          eq(taskGithubInfo.repo, event.payload.repository.name),
-          eq(taskGithubInfo.owner, event.payload.repository.owner.login),
-          eq(tasks.status, "awaiting_approval")
-        )
-      );
-
-    for (const dbtask of dbtasks) {
-      const task = dbtask.tasks;
-      const githubInfo = dbtask.task_github_info as TaskGithubInfoRecord;
-      if (!githubInfo.pullRequest) {
-        this.logger.warn("No pull request found for task:", task.id);
-        continue;
-      }
-      if (task?.type == "github") {
-        if (
-          (event.name === "pull_request_review" ||
-            event.name === "pull_request") &&
-          event.payload.pull_request.number === githubInfo.pullRequest?.number
-        ) {
-          if (event.name === "pull_request_review") {
-            this.logger.info("Pull request review event received");
-            if (event.payload.review.state === "approved") {
-              this.logger.info("Pull request approved");
-              this._onTaskApproved(task);
-            }
-            //reschedule the task, continue the loop
-            else {
-              this.logger.info("Pull request not approved");
-              if (!event.payload.review.body) {
-                this.logger.error("No review body found on pull request.");
-                return;
-              }
-              const newPrompt =
-                "\n\nYou created a pull request with the following details: " +
-                "PR Number: " +
-                githubInfo.pullRequest?.number +
-                "\nTitle: " +
-                githubInfo.pullRequest?.title +
-                "\nDescription: " +
-                githubInfo.pullRequest?.body +
-                "\n\nThe pull request has been reviewed. The reviewer has outlined some issues you need to fix:\n\n" +
-                "```\n" +
-                event.payload.review.body! +
-                "\n```\n\n" +
-                "Please fix the issues and commit your changes.";
-
-              const currentSubTask = (await db.query.subTasks.findFirst({
-                where: eq(subTasks.id, task.currentSubTaskId!),
-              })) as SubTaskRecord;
-
-              if (!currentSubTask) {
-                throw new Error("Current subtask not found.");
-              }
-
-              const newSubTask = await this.createContinuationSubTask(
-                task,
-                currentSubTask,
-                newPrompt
-              );
-
-              this.logger.info("Rescheduling task:", task.id);
-              await this.scheduleTask(task, newSubTask);
-            }
-          } else if (event.name === "pull_request") {
-            this.logger.info("Pull request event received");
-            if (event.payload.action === "closed") {
-              if (event.payload.pull_request.merged) {
-                this.logger.info("Pull request merged event received");
-                this._onTaskApproved(task);
-              } else {
-                this.logger.info("Pull request closed event received");
-                this._onTaskClosed(task);
-              }
-            }
-          }
-        } else if (event.name === "issue_comment") {
-          this.logger.info("Issue comment event received");
-          const issueTasks = await db
-            .select()
-            .from(tasks)
-            .innerJoin(
-              taskGithubInfo,
-              eq(tasks.githubInfoId, taskGithubInfo.id)
+    this.logger.info("Pull request event received.");
+    if (
+      (event.name === "pull_request_review" || event.name === "pull_request") &&
+      event.payload.pull_request.number
+    ) {
+      const dbtasks = await db
+        .select()
+        .from(tasks)
+        .innerJoin(taskGithubInfo, eq(tasks.githubInfoId, taskGithubInfo.id))
+        .where(
+          and(
+            eq(taskGithubInfo.repo, event.payload.repository.name),
+            eq(taskGithubInfo.owner, event.payload.repository.owner.login),
+            eq(
+              sql`${taskGithubInfo.pullRequest}->>'number'`,
+              event.payload.pull_request.number
+            ),
+            or(
+              eq(tasks.status, "awaiting_approval"),
+              eq(tasks.status, "awaiting_help")
+              // eq(tasks.status, "running"),
+              // eq(tasks.status, "pending")
             )
-            .where(
-              and(
-                eq(taskGithubInfo.linkedIssueNumber, event.payload.issue.number)
-              )
-            );
+          )
+        );
 
-          if (issueTasks.length === 0) {
-            this.logger.warn(
-              "No task found for issue:",
-              event.payload.issue.number
-            );
-            continue;
+      if (dbtasks.length === 0) {
+        this.logger.warn(
+          "No task found for pull request:",
+          event.payload.pull_request.number
+        );
+        return;
+      }
+
+      for (const dbtask of dbtasks) {
+        const task = dbtask.tasks;
+        const githubInfo = dbtask.task_github_info as TaskGithubInfoRecord;
+        if (!githubInfo.pullRequest) {
+          this.logger.warn("No pull request found for task:", task.id);
+          continue;
+        }
+
+        if (event.name === "pull_request_review") {
+          this.logger.info("Pull request review event received");
+          if (event.payload.review.state === "approved") {
+            this.logger.info("Pull request approved");
+            this._onTaskApproved(task);
           }
-
-          const issueTask = issueTasks[0];
-
-          if (issueTask.tasks.status !== "awaiting_help") {
-            continue;
-          }
-
-          if (event.payload.comment.body.includes("@that-tool-agent")) {
-            const githubInfo =
-              issueTask.task_github_info as TaskGithubInfoRecord;
-
-            const currentSubTask = (await db.query.subTasks.findFirst({
-              where: eq(subTasks.id, issueTask.tasks.currentSubTaskId!),
-            })) as SubTaskRecord;
-
-            if (!currentSubTask) {
-              throw new Error("Current subtask not found.");
+          //reschedule the task, continue the loop
+          else {
+            this.logger.info("Pull request not approved");
+            if (!event.payload.review.body) {
+              this.logger.error("No review body found on pull request.");
+              return;
             }
-
             const newPrompt =
-              currentSubTask.prompt +
-              "\n\n" +
-              "You asked the following question: " +
-              event.payload.comment.body +
-              "\n\n";
+              "\n\nYou created a pull request with the following details: " +
+              "PR Number: " +
+              githubInfo.pullRequest?.number +
+              "\nTitle: " +
+              githubInfo.pullRequest?.title +
+              "\nDescription: " +
+              githubInfo.pullRequest?.body +
+              "\n\nThe pull request has been reviewed. The reviewer has outlined some issues you need to fix:\n\n" +
+              "```\n" +
+              event.payload.review.body! +
+              "\n```\n\n" +
+              "Please fix the issues and commit your changes.";
 
-            const newSubTask = await this.createContinuationSubTask(
-              issueTask.tasks,
-              currentSubTask,
+            const newSubTask = await this.setupAndScheduleContinuationSubTask(
+              task,
+              githubInfo,
               newPrompt
             );
-            this.logger.info("Help answer received");
-            // this._onTaskHelpRequest(task);
+
+            this.logger.info("Rescheduling task:", task.id);
+            await this.scheduleSubTask(newSubTask);
+          }
+        } else if (event.name === "pull_request") {
+          this.logger.info("Pull request event received");
+          if (event.payload.action === "closed") {
+            if (event.payload.pull_request.merged) {
+              this.logger.info("Pull request merged event received");
+              this._onTaskApproved(task);
+            } else {
+              this.logger.info("Pull request closed event received");
+              this._onTaskClosed(task);
+            }
           }
         }
       }
     }
   };
 
+  public async setupAndScheduleContinuationSubTask(
+    task: TaskRecord,
+    githubInfo: TaskGithubInfoRecord,
+    prompt: string
+  ) {
+    const setup = await this.setupSubTask(task, githubInfo);
+    const newSubTask = await this.createContinuationSubTask(
+      task,
+      prompt,
+      setup.workDir,
+      setup.logFile
+    );
+
+    this.scheduleSubTask(newSubTask);
+
+    return newSubTask;
+  }
+
   private async setupProject(
     task: TaskGithubInfoRecord,
-    project: ProjectRecord
+    project: ProjectRecord,
+    overwrite = true
   ) {
     const projectBaseDir = path.join(this.projectsRootDir, project.projectName);
-    if (existsSync(projectBaseDir)) {
+    if (existsSync(projectBaseDir) && overwrite) {
       await fs.rm(projectBaseDir, { recursive: true, force: true });
     }
 
-    this.logger.info("Cloning repo:", task.repo, task.owner);
-
-    await this.github.cloneRepo(task.repo, task.owner, projectBaseDir);
+    if (!existsSync(projectBaseDir)) {
+      this.logger.info("Cloning repo:", task.repo, task.owner);
+      await this.github.cloneRepo(task.repo, task.owner, projectBaseDir);
+    } else {
+      this.logger.info("Pulling repo:", task.repo, task.owner);
+      await this.github.pullRepo(task.repo, task.owner, projectBaseDir);
+    }
 
     if (task.startBranch) {
       this.logger.info("Checking out branch:", task.startBranch);
@@ -362,8 +398,6 @@ export class TaskService {
     const taskRecord = await db
       .insert(tasks)
       .values({
-        initialPrompt: task.prompt,
-        currentPrompt: task.prompt,
         type: task.type,
         webhookURL: task.notifyURL,
         projectId: projectRecord.id,
@@ -410,7 +444,8 @@ export class TaskService {
     prompt: string,
     workDir: string,
     logFile: string,
-    status: "pending" | "running" | "complete"
+    status: "pending" | "running" | "complete",
+    previousSubTaskId?: number
   ) {
     const subTaskRecord = await db
       .insert(subTasks)
@@ -421,6 +456,7 @@ export class TaskService {
         workDir,
         logFile,
         prompt,
+        previousSubTaskId,
       })
       .returning();
 
@@ -429,29 +465,30 @@ export class TaskService {
 
   private async createContinuationSubTask(
     task: TaskRecord,
-    previousSubTask: SubTaskRecord,
-    prompt: string
+    prompt: string,
+    workDir: string,
+    logFile: string
   ) {
-    const currentPrompt = task.currentPrompt + "\n\n" + prompt;
+    const previousSubTask = await db.query.subTasks.findFirst({
+      where: eq(subTasks.id, task.currentSubTaskId!),
+    });
+
+    if (!previousSubTask) {
+      throw new Error("Previous subtask not found");
+    }
+    // const currentPrompt = task.currentPrompt + "\n\n" + prompt;
     const subTaskRecord = await db
       .insert(subTasks)
       .values({
         taskId: task.id,
         modelName: previousSubTask.modelName,
-        prompt: currentPrompt,
-        workDir: previousSubTask.workDir,
-        logFile: previousSubTask.logFile,
+        previousSubTaskId: previousSubTask.id,
+        prompt: prompt,
+        workDir: workDir,
+        logFile: logFile,
         status: "pending",
       })
       .returning();
-
-    await db
-      .update(tasks)
-      .set({
-        currentSubTaskId: subTaskRecord[0].id,
-        currentPrompt,
-      })
-      .where(eq(tasks.id, task.id));
 
     return subTaskRecord[0] as SubTaskRecord;
   }
@@ -488,42 +525,33 @@ export class TaskService {
 
     this.logger.info("Task record created:", taskRecord.id);
 
-    // Create log file
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const logFile = path.join(
-      this.logsDir,
-      `task-${timestamp}-${projectName}.log`
-    );
+    this.logger.info("Setting up subtask");
+    const setup = await this.setupSubTask(taskRecord, githubInfoRecord!);
 
-    this.logger.info("Log file created:", logFile);
-
-    // let setup: SubTaskRecord;
-    let workDir: string;
-
-    if (startTask.type === "github") {
-      this.logger.info("Setting up github");
-      workDir = await this.setupProject(githubInfoRecord!, projectRecord);
-    } else {
-      this.logger.info("Setting up local");
-      workDir = path.join(this.projectsRootDir, projectName);
-    }
-
-    this.logger.info("Creating subtask");
-    const setup = await this.createSubTask(
+    this.logger.info("Creating subtask", {
+      taskId: taskRecord.id,
+      modelName: startTask.openaiModel,
+      prompt: startTask.prompt,
+      workDir: setup.workDir,
+      logFile: setup.logFile,
+    });
+    const subtask = await this.createSubTask(
       taskRecord.id,
       startTask.openaiModel,
       startTask.prompt,
-      workDir,
-      logFile,
+      setup.workDir,
+      setup.logFile,
       "pending"
     );
 
-    this.logger.info("Scheduling task");
-    await this.scheduleTask(taskRecord, setup);
+    this.logger.info("Scheduling subtask", {
+      subtaskId: subtask.id,
+    });
+    this.scheduleSubTask(subtask);
 
     return {
       taskId: taskRecord.id,
-      subtaskId: setup.id,
+      subtaskId: subtask.id,
     };
   }
 
@@ -549,15 +577,54 @@ export class TaskService {
     this.llmScheduler.stopTaskIfExists(taskRecord.id);
   }
 
-  public async scheduleTask(taskRecord: TaskRecord, subtask: SubTaskRecord) {
-    this.logger.info("Scheduling task:", taskRecord.id);
+  public async setupSubTask(
+    taskRecord: TaskRecord,
+    githubInfoRecord: TaskGithubInfoRecord
+  ) {
+    const projectRecord = await db.query.projects.findFirst({
+      where: eq(projects.id, taskRecord.projectId),
+    });
+
+    if (!projectRecord) {
+      throw new Error("Project not found");
+    }
+
+    // Create log file
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const logFile = path.join(
+      this.logsDir,
+      "tasks",
+      `task-${timestamp}-${projectRecord.projectName}.log`
+    );
+
+    this.logger.info("Log file created:", logFile);
+
+    // let setup: SubTaskRecord;
+    let workDir: string;
+
+    if (taskRecord.type === "github") {
+      this.logger.info("Setting up github");
+      workDir = await this.setupProject(githubInfoRecord, projectRecord);
+    } else {
+      this.logger.info("Setting up local");
+      workDir = path.join(this.projectsRootDir, projectRecord.projectName);
+    }
+
+    return {
+      workDir,
+      logFile,
+    };
+  }
+
+  public async scheduleSubTask(subtask: SubTaskRecord) {
+    this.logger.info("Scheduling task:", subtask.id);
     await db
       .update(tasks)
       .set({
         currentSubTaskId: subtask.id,
         status: "running",
       })
-      .where(eq(tasks.id, taskRecord.id));
+      .where(eq(tasks.id, subtask.taskId));
 
     this.logger.info("Adding complete callback for subtask:", subtask.id);
 
@@ -567,6 +634,8 @@ export class TaskService {
     );
 
     this.llmScheduler.executeTask(subtask);
+
+    return subtask;
   }
 
   public async getCurrentSubTaskStatus(id: string) {
@@ -704,117 +773,154 @@ export class TaskService {
       this.logger.error("Task not found:", subtask.taskId);
       return;
     }
-
     let githubInfo: TaskGithubInfoRecord | null = null;
 
-    if (task?.type === "github") {
-      this.logger.info("On github task complete:", task);
-      githubInfo = (await db.query.taskGithubInfo.findFirst({
-        where: eq(taskGithubInfo.id, task.githubInfoId!),
-      })) as TaskGithubInfoRecord;
+    try {
+      if (task?.type === "github") {
+        this.logger.info("On github task complete:", task);
+        githubInfo = (await db.query.taskGithubInfo.findFirst({
+          where: eq(taskGithubInfo.id, task.githubInfoId!),
+        })) as TaskGithubInfoRecord;
 
-      if (!githubInfo) {
-        throw new Error("Github info not found. Malformed task.");
-      }
-
-      if (output?.type === "help_request") {
-        this.logger.info("Help request received:", output.query);
-        await db
-          .update(tasks)
-          .set({
-            status: "awaiting_help",
-          })
-          .where(eq(tasks.id, task.id));
-
-        //write comment on linked issue
-        if (githubInfo.linkedIssueNumber) {
-          await this.github.createComment({
-            owner: githubInfo.owner,
-            repository: githubInfo.repo,
-            issueNumber: githubInfo.linkedIssueNumber,
-            body:
-              "I have encountered an issue with the following task: " +
-              "\n\n```\n" +
-              task.currentPrompt +
-              "\n```\n\n" +
-              "My issue is: " +
-              "\n\n```\n" +
-              output.query +
-              "\n```\n\n" +
-              "\n\nPlease help me fix the issue. I am waiting for your response.",
-          });
+        if (!githubInfo) {
+          throw new Error("Github info not found. Malformed task.");
         }
-        return;
-      }
 
-      if (!githubInfo.pullRequest) {
-        this.logger.info("Creating branch:", githubInfo.targetBranch);
-        await this.github.createBranch(
-          subtask.workDir,
-          githubInfo.targetBranch,
-          {
-            owner: githubInfo.owner,
-            repo: githubInfo.repo,
+        if (output?.type === "help_request") {
+          this.logger.info("Help request received:", output.query);
+          //write comment on linked issue
+          if (githubInfo.linkedIssueNumber) {
+            await this.github.createComment({
+              owner: githubInfo.owner,
+              repository: githubInfo.repo,
+              issueNumber: githubInfo.linkedIssueNumber,
+              body: output.query,
+            });
+            await db
+              .update(tasks)
+              .set({
+                status: "awaiting_help",
+              })
+              .where(eq(tasks.id, task.id));
+          } else {
+            this.logger.error(
+              "No linked issue number found for task. \
+            Unable to create comment on issue. \
+            Model's question will need to be manually resolved through API."
+            );
           }
-        );
-        this.logger.info("Checking out branch:", githubInfo.targetBranch);
-        await this.github.checkoutBranch(
-          subtask.workDir,
-          githubInfo.targetBranch
-        );
-      }
-      this.logger.info("Committing and pushing:", githubInfo.targetBranch);
-      await this.github.commitAndPush(
-        subtask.workDir,
-        githubInfo.targetBranch,
-        output?.commitMessage || "No commit message."
-      );
-      if (!githubInfo.pullRequest) {
-        this.logger.info("Creating pull request:", githubInfo.targetBranch);
-        const pullRequest = await this.github.createPullRequest({
-          owner: githubInfo.owner,
-          repository: githubInfo.repo,
-          title: output?.commitMessage || "No commit message.",
-          head: githubInfo.targetBranch,
-          base: githubInfo.startBranch,
-          body:
-            (output?.commitDescription || "No commit description.") +
-            (githubInfo.linkedIssueNumber
-              ? "\n\nCloses #" + githubInfo.linkedIssueNumber
-              : ""),
-        });
 
-        if (!pullRequest.data) {
-          this.logger.error("Pull request not created:", pullRequest);
+          this.logger.info("Creating branch:", githubInfo.targetBranch);
+          await this.github.createBranch(
+            subtask.workDir,
+            githubInfo.targetBranch,
+            {
+              owner: githubInfo.owner,
+              repo: githubInfo.repo,
+            }
+          );
+          this.logger.info("Checking out branch:", githubInfo.targetBranch);
+          await this.github.checkoutBranch(
+            subtask.workDir,
+            githubInfo.targetBranch
+          );
+          this.logger.info("Committing and pushing:", githubInfo.targetBranch);
+          await this.github.commitAndPush(
+            subtask.workDir,
+            githubInfo.targetBranch,
+            "feat: incomplete commit for task: " + task.id + " (help requested)"
+          );
           return;
         }
 
-        await db
-          .update(taskGithubInfo)
-          .set({
-            pullRequest: pullRequest.data,
-          })
-          .where(eq(taskGithubInfo.id, githubInfo.id));
-
-        await db
-          .update(tasks)
-          .set({
-            status: "awaiting_approval",
-          })
-          .where(eq(tasks.id, subtask.taskId));
-
-        if (env.github.trustMeBro) {
-          this.logger.info("Trust me bro. Approving pull request.");
-          await this.github.approvePullRequest({
+        if (!githubInfo.pullRequest) {
+          this.logger.info("Creating branch:", githubInfo.targetBranch);
+          await this.github.createBranch(
+            subtask.workDir,
+            githubInfo.targetBranch,
+            {
+              owner: githubInfo.owner,
+              repo: githubInfo.repo,
+            }
+          );
+          this.logger.info("Checking out branch:", githubInfo.targetBranch);
+          await this.github.checkoutBranch(
+            subtask.workDir,
+            githubInfo.targetBranch
+          );
+        }
+        this.logger.info("Committing and pushing:", githubInfo.targetBranch);
+        await this.github.commitAndPush(
+          subtask.workDir,
+          githubInfo.targetBranch,
+          output?.commitMessage || "No commit message."
+        );
+        if (!githubInfo.pullRequest) {
+          this.logger.info("Creating pull request:", githubInfo.targetBranch);
+          const pullRequest = await this.github.createPullRequest({
             owner: githubInfo.owner,
             repository: githubInfo.repo,
-            pullRequestNumber: pullRequest.data.number,
+            title: output?.commitMessage || "No commit message.",
+            head: githubInfo.targetBranch,
+            base: githubInfo.startBranch,
+            body:
+              (output?.commitDescription || "No commit description.") +
+              (githubInfo.linkedIssueNumber
+                ? "\n\nCloses #" + githubInfo.linkedIssueNumber
+                : ""),
           });
-          await this._onTaskApproved(task);
+
+          if (!pullRequest.data) {
+            this.logger.error("Pull request not created:", pullRequest);
+            return;
+          }
+
+          await db
+            .update(taskGithubInfo)
+            .set({
+              pullRequest: pullRequest.data,
+            })
+            .where(eq(taskGithubInfo.id, githubInfo.id));
+
+          await db
+            .update(tasks)
+            .set({
+              status: "awaiting_approval",
+            })
+            .where(eq(tasks.id, subtask.taskId));
+
+          if (env.github.trustMeBro) {
+            this.logger.info("Trust me bro. Approving pull request.");
+            await this.github.approvePullRequest({
+              owner: githubInfo.owner,
+              repository: githubInfo.repo,
+              pullRequestNumber: pullRequest.data.number,
+            });
+            await this._onTaskApproved(task);
+          }
         }
+      } else {
+        await this._onTaskApproved(task);
       }
-    } else {
-      await this._onTaskApproved(task);
+    } catch (error) {
+      this.logger.error("Error in onSubTaskComplete:", error);
+
+      await db
+        .update(tasks)
+        .set({
+          status: "error",
+        })
+        .where(eq(tasks.id, task.id));
+
+      await db
+        .update(subTasks)
+        .set({
+          error:
+            error instanceof Error
+              ? "Error while finalizing task: " + error.message
+              : "Unknown error while finalizing task",
+        })
+        .where(eq(subTasks.id, subtask.id));
     }
 
     const callback = this.onSubtaskCompleteCallbacks.get(task.id);

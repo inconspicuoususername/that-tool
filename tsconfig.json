@@ -1,29 +1,28 @@
 {
-    "compilerOptions": {
-      "target": "esnext",
-      "lib": [
-        "esnext",
-        // "dom",
-        // "dom.iterable",
-        // "webworker"
-      ],
-      "jsx": "react",
-      // "allowJs": true,
-      "skipLibCheck": false,
-      "strict": true,
-      // "noEmit": true,
-      "esModuleInterop": true,
-      "module": "esnext",
-      "moduleResolution": "node",
-      "resolveJsonModule": true,
-      "inlineSourceMap": true,
-      "isolatedModules": true,
-      // "incremental": true,
-      "paths": {
-        "@/*": ["./src/*"]
-      }
-    },
-    "include": ["**/*.ts", "**/*.tsx"],
-    "exclude": ["node_modules"]
-  }
-  
+  "compilerOptions": {
+    "target": "esnext",
+    "lib": [
+      "esnext"
+      // "dom",
+      // "dom.iterable",
+      // "webworker"
+    ],
+    "jsx": "react",
+    // "allowJs": true,
+    "skipLibCheck": false,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "inlineSourceMap": true,
+    "isolatedModules": true,
+    // "incremental": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}

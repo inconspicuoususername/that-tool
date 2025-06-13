@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."sub_tasks" DROP COLUMN "help_query";

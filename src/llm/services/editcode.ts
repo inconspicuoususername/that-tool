@@ -34,7 +34,8 @@ export class EditCodeService {
   public applySRBlocks(uri: URI, blocksStr: string, modelStr: string) {
     if (blocksStr === undefined) {
       throw new Error(
-        `No Search/Replace blocks were received! Make sure you're using the correct format for blocks. Example:
+        `No Search/Replace blocks were received! Make sure you're using the correct format for blocks.
+EXAMPLE (YOU MUST FOLLOW THE FORMAT EXACTLY!!!s):
 ${searchReplaceBlockTemplate}`
       );
     }
