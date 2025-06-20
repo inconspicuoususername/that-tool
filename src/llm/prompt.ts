@@ -15,6 +15,10 @@ import {
 } from "@/types/llm-scheduler";
 import { createDefaultWinstonLogger } from "@/lib/basic-logger";
 
+function isReasoningModel(modelname: string) {
+  return modelname.startsWith("o");
+}
+
 export async function executeTask(
   task: SubtaskInstance
 ): Promise<LLMResult | LLMHelpRequest> {
@@ -33,14 +37,18 @@ export async function executeTask(
 
   // Function to log messages
   // const logger = createLogger("Agent");
-  const logger = createDefaultWinstonLogger("Agent", task.subtask.logFile);
+  const logger = createDefaultWinstonLogger("Agent", task.setup.logFile);
 
   // Initialize conversation history
+  const prompt = task.setup.currentPrompt;
+  const workDir = task.setup.workDir;
+  const logFile = task.setup.logFile;
   let messages: OpenAI.Responses.ResponseInput = [];
 
   logger.info("Begin task execution.");
-  logger.info(`Task: ${task.context.currentPrompt}`);
-  logger.info(`Workspace path: ${task.subtask.workDir}`);
+  logger.info(`Task: ${prompt}`);
+  logger.info(`Workspace path: ${workDir}`);
+  logger.info(`Log file: ${logFile}`);
 
   let previousResponseId: string | undefined;
   let toolCalls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
@@ -98,7 +106,7 @@ export async function executeTask(
 
         messages.push({
           role: "user",
-          content: task.context.currentPrompt,
+          content: prompt,
         });
       } else if (previousTask.output?.type === "help_request") {
         if (!askForHelpCall) {
@@ -121,7 +129,7 @@ export async function executeTask(
   } else {
     messages.push({
       role: "user",
-      content: task.context.currentPrompt,
+      content: prompt,
     });
   }
 
@@ -199,7 +207,7 @@ export async function executeTask(
     }
 
     const instructions = await getSystemMessage({
-      directoryPath: task.subtask.workDir,
+      directoryPath: workDir,
       persistentTerminalIDs: terminalService.getTerminalIDs(),
     });
 
@@ -212,6 +220,11 @@ export async function executeTask(
       instructions,
       tools: getToolJSON2(),
       tool_choice: "auto",
+      reasoning: isReasoningModel(task.subtask.modelName)
+        ? {
+            effort: "high",
+          }
+        : undefined,
       previous_response_id: previousResponseId,
     });
 

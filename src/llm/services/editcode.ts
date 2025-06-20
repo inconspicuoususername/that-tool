@@ -28,14 +28,20 @@ export class EditCodeService {
       default:
         descStr = "";
     }
-    return descStr;
+    return (
+      descStr +
+      `
+Make sure you are following the format for search/replace blocks EXACTLY!
+EXAMPLE:
+${searchReplaceBlockTemplate}`
+    );
   };
 
   public applySRBlocks(uri: URI, blocksStr: string, modelStr: string) {
     if (blocksStr === undefined) {
       throw new Error(
-        `No Search/Replace blocks were received! Make sure you're using the correct format for blocks.
-EXAMPLE (YOU MUST FOLLOW THE FORMAT EXACTLY!!!s):
+        `No Search/Replace blocks were received! You must follow the format exactly as provided in the example.
+EXAMPLE:
 ${searchReplaceBlockTemplate}`
       );
     }

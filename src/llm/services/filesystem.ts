@@ -19,7 +19,14 @@ export const resolve = async (path: string): Promise<Resolve | null> => {
   if (stat.isDirectory()) {
     const children = await fs.readdir(path, { withFileTypes: true });
     const childrenRes = await Promise.all(
-      children.map(async (child) => resolve(path + "/" + child.name))
+      children.map(async (child) => {
+        try {
+          return await resolve(path + "/" + child.name);
+        } catch (e) {
+          console.error(e);
+          return null;
+        }
+      })
     );
     childrenArr = childrenRes.filter((child) => child !== null);
   }

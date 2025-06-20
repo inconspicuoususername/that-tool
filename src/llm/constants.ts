@@ -21,7 +21,7 @@ export const START_MAX_ITEMS_PER_DIR = 100;
 // terminal tool info
 export const MAX_TERMINAL_CHARS = 100_000;
 export const MAX_TERMINAL_INACTIVE_TIME = 8; // seconds
-export const MAX_TERMINAL_BG_COMMAND_TIME = 5;
+export const MAX_TERMINAL_BG_COMMAND_TIME = 20; // seconds
 
 // Maximum character limits for prefix and suffix context
 export const MAX_PREFIX_SUFFIX_CHARS = 20_000;

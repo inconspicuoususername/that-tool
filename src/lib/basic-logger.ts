@@ -18,15 +18,19 @@ const formatMeta = (meta: any) => {
   return "";
 };
 
-const defaultWinstonConsoleFmt = winston.format.combine(
-  // winston.format.splat(),
-  winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
-    return `[${timestamp}] [${service}] [${level}] ${message} ${formatMeta(
-      meta
-    )}`;
-  }),
-  winston.format.colorize({ all: true })
-);
+const defaultWinstonConsoleTransport = new winston.transports.Console({
+  format: winston.format.combine(
+    // winston.format.splat(),
+    winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
+      return `[${timestamp}] [${service}] [${level}] ${message} ${formatMeta(
+        meta
+      )}`;
+    }),
+    winston.format.colorize({ all: true })
+  ),
+  forceConsole: true,
+  level: "debug",
+});
 
 export function createDefaultWinstonLogger(service: string, logfile: string) {
   return winston.createLogger({
@@ -40,11 +44,7 @@ export function createDefaultWinstonLogger(service: string, logfile: string) {
         filename: path.join(env.logDir, logfile),
         level: "info",
       }),
-      new winston.transports.Console({
-        format: defaultWinstonConsoleFmt,
-        forceConsole: true,
-        level: "debug",
-      }),
+      defaultWinstonConsoleTransport,
     ],
   });
 }

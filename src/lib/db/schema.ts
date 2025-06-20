@@ -54,12 +54,18 @@ const pgTable = schema.table;
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectName: text("project_name").notNull(),
+  projectName: text("project_name").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .notNull()
     .$onUpdate(() => new Date()),
+  repo: text("repo").notNull(),
+  owner: text("owner").notNull(),
+
+  projectSpecification: text("project_specification"),
+  defaultBaseBranch: text("default_base_branch").notNull().default("main"),
+  defaultModel: text("default_model").notNull().default("gpt-4o-mini"),
 });
 
 export const tasks = pgTable("tasks", {
@@ -97,12 +103,21 @@ export const tasks = pgTable("tasks", {
   })
     .notNull()
     .default("pending"),
-  githubInfoId: integer("github_info_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .notNull()
     .$onUpdate(() => new Date()),
+});
+
+export const taskDependencies = pgTable("task_dependencies", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id")
+    .references(() => tasks.id, { onDelete: "cascade" })
+    .notNull(),
+  dependencyTaskId: integer("dependency_task_id")
+    .references(() => tasks.id, { onDelete: "cascade" })
+    .notNull(),
 });
 
 /*
@@ -120,9 +135,9 @@ pullRequest: z
     */
 export const taskGithubInfo = pgTable("task_github_info", {
   id: serial("id").primaryKey(),
-  taskId: integer("task_id").references(() => tasks.id),
-  owner: text("owner").notNull(),
-  repo: text("repo").notNull(),
+  taskId: integer("task_id")
+    .references(() => tasks.id, { onDelete: "cascade" })
+    .notNull(),
   startBranch: text("start_branch").notNull(),
   targetBranch: text("target_branch").notNull(),
   pullRequest: jsonb("pull_request").$type<{
@@ -153,12 +168,10 @@ output: z.union([
 export const subTasks = pgTable("sub_tasks", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id")
-    .references(() => tasks.id)
+    .references(() => tasks.id, { onDelete: "cascade" })
     .notNull(),
   modelName: text("model_name").notNull(),
   prompt: text("prompt").notNull(),
-  workDir: text("work_dir").notNull(),
-  logFile: text("log_file").notNull(),
   currentOAIResponseId: text("current_oai_response_id"),
   status: varchar("status", {
     enum: ["pending", "running", "complete", "killed"],
@@ -177,7 +190,9 @@ export const subTasks = pgTable("sub_tasks", {
 
 export const oaiResponses = pgTable("oai_responses", {
   id: text("id").primaryKey(),
-  subTaskId: integer("sub_task_id").references(() => subTasks.id),
+  subTaskId: integer("sub_task_id").references(() => subTasks.id, {
+    onDelete: "cascade",
+  }),
   response: jsonb("response").notNull(),
   oaiResponseId: text("oai_response_id").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -189,10 +204,11 @@ export const taskRelations = relations(tasks, ({ many, one }) => ({
     fields: [tasks.currentSubTaskId],
     references: [subTasks.id],
   }),
-  githubInfo: one(taskGithubInfo, {
-    fields: [tasks.githubInfoId],
-    references: [taskGithubInfo.id],
+  taskGithubInfo: one(taskGithubInfo, {
+    fields: [tasks.id],
+    references: [taskGithubInfo.taskId],
   }),
+  dependencies: many(taskDependencies),
 }));
 
 export const taskGithubInfoRelations = relations(taskGithubInfo, ({ one }) => ({

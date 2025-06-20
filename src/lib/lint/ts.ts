@@ -164,7 +164,7 @@ async function startTypescriptServer(): Promise<ChildProcessWithoutNullStreams> 
   // });
 
   server.stderr.on("data", (data) => {
-    logger.info("Stderr data", { data: data.toString() });
+    console.log("Stderr data", data.toString());
   });
   // server.stderr.on("end", () => {
   //   console.log("Stderr end");

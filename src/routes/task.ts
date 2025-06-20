@@ -1,7 +1,13 @@
-import { startTaskRequestSchema, getTaskSchema } from "@/types/api";
+import {
+  startTaskRequestSchema,
+  getTaskSchema,
+  beginEpicRequestSchema,
+  updateProjectRequestSchema,
+} from "@/types/api";
 import { Router, Request, Response, RequestHandler } from "express";
 import { serviceMesh } from "@/llm/mesh";
 import { GithubInstallationError } from "@/lib/github";
+
 const startTask: RequestHandler = async (req, res) => {
   req.body;
   const validated = startTaskRequestSchema.safeParse(req.body);
@@ -91,6 +97,46 @@ const getTaskFiles: RequestHandler = async (req, res) => {
   result.files.stream.finalize();
 };
 
+const beginEpic: RequestHandler = async (req, res) => {
+  const epicID = beginEpicRequestSchema.safeParse(req.body);
+
+  if (!epicID.success) {
+    res.status(400).json({ error: epicID.error.message });
+    return;
+  }
+
+  try {
+    const result = await serviceMesh.issueService.completeEpic(epicID.data);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+};
+
+const updateProject: RequestHandler = async (req, res) => {
+  const body = updateProjectRequestSchema.safeParse(req.body);
+
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  try {
+    const result = await serviceMesh.taskService.updateProject(body.data);
+    res.json(result);
+  } catch (error) {
+    if (error instanceof Error) {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  }
+};
+
 const taskRouter = Router();
 
 taskRouter.post("/start", startTask);
@@ -98,5 +144,7 @@ taskRouter.get("/:id/status", getTaskStatus);
 taskRouter.get("/:id/logs", getTaskLogs);
 taskRouter.get("/:id/files", getTaskFiles);
 taskRouter.get("/:id", getTask);
+taskRouter.post("/begin-epic", beginEpic);
+taskRouter.post("/update-project", updateProject);
 
 export { taskRouter };

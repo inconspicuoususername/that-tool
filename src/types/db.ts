@@ -4,6 +4,7 @@ import {
   tasks,
   subTasks,
   taskGithubInfo,
+  taskDependencies,
 } from "@/lib/db/schema";
 import { InferSelectModel } from "drizzle-orm";
 
@@ -24,3 +25,8 @@ export type TaskRecord = InferSelectModel<typeof tasks>;
 export type TaskGithubInfoRecord = InferSelectModel<typeof taskGithubInfo>;
 export type SubTaskRecord = InferSelectModel<typeof subTasks>;
 export type OAIResponseRecord = InferSelectModel<typeof oaiResponses>;
+export type TaskDependencyRecord = InferSelectModel<typeof taskDependencies>;
+
+export const taskActiveStatuses = ["pending", "running", "awaiting_approval"];
+export const taskFinalStatuses = ["complete", "error", "closed", "killed"];
+export const taskSuccessStatuses = ["complete"];

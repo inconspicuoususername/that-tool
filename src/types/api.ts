@@ -8,9 +8,9 @@ export type CreateProjectRequest = z.infer<typeof createProjectSchema>;
 
 export const baseStartTaskSchema = z.object({
   type: z.enum(["github", "local"]),
-  openaiModel: z.string(),
   prompt: z.string(),
   notifyURL: z.string().url().optional(),
+  taskDependencies: z.array(z.number()).optional(),
 });
 
 export const localStartTaskSchema = baseStartTaskSchema.extend({
@@ -53,3 +53,23 @@ export const getTaskLogsResponseSchema = z.object({
 });
 
 export type GetTaskLogsResponse = z.infer<typeof getTaskLogsResponseSchema>;
+
+export const beginEpicRequestSchema = z.object({
+  issueId: z.number(),
+  repo: z.string(),
+  owner: z.string(),
+  baseBranch: z.string().optional(),
+});
+
+export type BeginEpicRequest = z.infer<typeof beginEpicRequestSchema>;
+
+export const updateProjectRequestSchema = z.object({
+  owner: z.string(),
+  repo: z.string(),
+  projectName: z.string().optional(),
+  defaultBaseBranch: z.string().optional(),
+  defaultModel: z.string().optional(),
+  projectSpecification: z.string().optional(),
+});
+
+export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;

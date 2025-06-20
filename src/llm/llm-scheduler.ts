@@ -13,6 +13,7 @@ import {
   LLMHelpRequest,
 } from "@/types/llm-scheduler";
 import winston from "winston";
+import fs from "fs/promises";
 
 export class LLMScheduler {
   private runningTasks: SubtaskInstance[] = [];
@@ -59,7 +60,11 @@ export class LLMScheduler {
     }
   }
 
-  public async executeTask(task: SubTaskRecord) {
+  public async executeTask(
+    task: SubTaskRecord,
+    workDir: string,
+    logFile: string
+  ) {
     const updatedSubtaskRecord = await db
       .update(subTasks)
       .set({
@@ -76,13 +81,18 @@ export class LLMScheduler {
       );
     }
 
-    this.logger.info("Executing task:", updatedSubtask);
-    const context = this._setupTaskContext(
-      updatedSubtask.workDir,
-      updatedSubtask.prompt
-    );
+    this.logger.info("Executing task", {
+      taskId: updatedSubtask.taskId,
+      subtaskId: updatedSubtask.id,
+    });
+    const context = this._setupTaskContext(workDir);
     const subtask = {
       context,
+      setup: {
+        workDir,
+        logFile,
+        currentPrompt: updatedSubtask.prompt,
+      },
       subtask: updatedSubtask,
       promise: Promise.resolve(),
     } satisfies SubtaskInstance;
@@ -102,7 +112,23 @@ export class LLMScheduler {
     return subtask;
   }
 
-  private _setupTaskContext(workDir: string, prompt: string) {
+  public async getSubtaskLogs(subtaskId: number) {
+    const subtask = this.runningTasks.find((t) => t.subtask.id === subtaskId);
+    if (!subtask) {
+      throw new Error("Subtask not found");
+    }
+    return await fs.readFile(subtask.setup.logFile, "utf-8");
+  }
+
+  public async getSubtaskWorkDir(subtaskId: number) {
+    const subtask = this.runningTasks.find((t) => t.subtask.id === subtaskId);
+    if (!subtask) {
+      throw new Error("Subtask not found");
+    }
+    return subtask.setup.workDir;
+  }
+
+  private _setupTaskContext(workDir: string) {
     const terminalService = new TerminalService(workDir);
     const editCodeService = new EditCodeService();
     const toolsService = new ToolsService(
@@ -112,7 +138,6 @@ export class LLMScheduler {
     );
 
     return {
-      currentPrompt: prompt,
       terminalService,
       editCodeService,
       toolsService,
@@ -142,6 +167,7 @@ export class LLMScheduler {
 
     this.completeCallbacks.get(updatedSubtask.id)?.(
       updatedSubtask,
+      subtask.setup,
       null,
       request
     );
@@ -152,9 +178,11 @@ export class LLMScheduler {
     error: Error | null,
     result: LLMResult | null
   ) {
-    this.logger.info("Task completed:", subtask);
-    this.logger.info("Error:", error);
-    this.logger.info("Result:", result);
+    this.logger.info("Task completed:", {
+      subtaskId: subtask.subtask.id,
+      error: error?.message,
+      result: result,
+    });
 
     const updatedSubtaskRecord = await db
       .update(subTasks)
@@ -170,6 +198,7 @@ export class LLMScheduler {
 
     this.completeCallbacks.get(updatedSubtask.id)?.(
       updatedSubtask,
+      subtask.setup,
       error,
       result
     );

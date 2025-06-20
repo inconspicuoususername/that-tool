@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."projects" ADD CONSTRAINT "projects_project_name_unique" UNIQUE("project_name");

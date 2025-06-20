@@ -18,7 +18,7 @@ import {
   LintTypescriptDiagnostic,
   LintTypescriptResponse,
 } from "@/lib/lint/ts";
-import { lint } from "@/lib/lint";
+import { languageService } from "@/lib/lint";
 
 export class ToolsService {
   private workspacePath: string;
@@ -49,7 +49,7 @@ export class ToolsService {
   private async lint(
     filePath: string
   ): Promise<LintTypescriptDiagnostic[] | undefined> {
-    const lintResponse = await lint(filePath);
+    const lintResponse = await languageService.lint(filePath);
     return lintResponse
       ? [
           ...lintResponse.syntaxDiag.diagnostics,
@@ -69,6 +69,12 @@ export class ToolsService {
       );
     } else if (filePath.startsWith(this.workspaceName)) {
       filePath = filePath.replace(this.workspaceName, ".");
+    } else if (filePath.includes("node_modules")) {
+      throw new Error(
+        "node_modules is not allowed to be accessed because of the high lag it would cause to list all files in the workspace.s"
+      );
+    } else if (filePath.includes("..")) {
+      throw new Error("Use relative paths from the workspace root.");
     }
     const resolvedPath = path.resolve(this.workspacePath, filePath);
     if (!resolvedPath.startsWith(this.workspacePath)) {
@@ -98,10 +104,12 @@ export class ToolsService {
     }
 
     const selectedLines = lines.slice(startLine - 1, endLine);
+    const lintErrors = await this.lint(filePath);
 
     return {
       content: selectedLines.join("\n"),
       lineCount: lines.length,
+      lintErrors,
     };
   }
 

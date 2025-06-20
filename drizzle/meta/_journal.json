@@ -50,6 +50,62 @@
       "when": 1749820020189,
       "tag": "0006_parallel_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1750101674204,
+      "tag": "0007_graceful_argent",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1750185716588,
+      "tag": "0008_talented_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1750247844803,
+      "tag": "0009_yielding_paper_doll",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1750271983721,
+      "tag": "0010_thick_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1750272061665,
+      "tag": "0011_narrow_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1750272152102,
+      "tag": "0012_reflective_strong_guy",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1750273113631,
+      "tag": "0013_wealthy_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1750339064324,
+      "tag": "0014_material_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

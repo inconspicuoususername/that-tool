@@ -103,7 +103,12 @@ export class TerminalService {
         terminal.kill();
       }, timeout);
 
-      terminal.on("exit", (code) => {
+      let hasExited = false;
+
+      const exitHandler = (code: number) => {
+        if (hasExited) {
+          return;
+        }
         this.terminalEvents.delete(terminalId);
         this.terminalOutputs.delete(terminalId);
         clearTimeout(timeoutId);
@@ -114,7 +119,10 @@ export class TerminalService {
           },
           exitCode: code || 0,
         });
-      });
+        hasExited = true;
+      };
+      terminal.on("close", exitHandler);
+      terminal.on("exit", exitHandler);
 
       terminal.once("spawn", () => {
         if (terminal.stdin?.writable) {

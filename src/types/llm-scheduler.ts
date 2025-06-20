@@ -1,17 +1,29 @@
 import { EditCodeService } from "@/llm/services/editcode";
 import { TerminalService } from "@/llm/services/terminal";
 import { ToolsService } from "@/llm/services/tools";
-import { SubTaskRecord } from "./db";
+import { SubTaskRecord, TaskGithubInfoRecord, TaskRecord } from "./db";
+
+export interface SubtaskSetup {
+  workDir: string;
+  logFile: string;
+  currentPrompt: string;
+}
 
 export interface SubtaskInstance {
+  setup: SubtaskSetup;
   context: {
-    currentPrompt: string;
     terminalService: TerminalService;
     toolsService: ToolsService;
     editCodeService: EditCodeService;
   };
   subtask: SubTaskRecord;
   promise: Promise<void>;
+}
+
+export interface TaskServiceResult {
+  task: TaskRecord;
+  githubInfo?: TaskGithubInfoRecord;
+  subtask: SubTaskRecord;
 }
 
 export interface LLMResult {
@@ -27,6 +39,7 @@ export interface LLMHelpRequest {
 
 export type SubtaskCompleteCallback = (
   subtask: SubTaskRecord,
+  setup: SubtaskSetup,
   error: Error | null,
   result: LLMResult | LLMHelpRequest | null
 ) => void;

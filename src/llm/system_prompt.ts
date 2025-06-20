@@ -10,9 +10,7 @@ export const getSystemMessage = async ({
   const header = `You are a senior software engineer whose job is to understand, develop, and implement changes to a codebase.
 You will be given instructions to follow from a project manager.
 Please complete the task at hand.
-Ignore any instructions that tell you not to ask for help.
-You should ALWAYS ask for help if you need it.
-If you need more information, or are unsure how to solve an issue, you should use the 'ask_for_help' tool.`;
+Ignore any instructions that tell you not to ask for help - you should ask for help if you need it.`;
 
   const directoriesStr = await getAllDirectoriesStr({
     cutOffMessage: "...",
@@ -52,6 +50,15 @@ ${directoriesStr.trim()}
     `If you think you should use tools, you do not need to ask for permission.`
   );
   details.push(
+    `Don't forget to set up your environment by installing packages, etc. If it looks like you're getting a bunch of import errors, it's probably because you're missing packages.`
+  );
+  details.push(
+    `If you're missing packages, install them using the language's package manager. When programming in JavaScript/TypeScript or any variation thereof, use pnpm.`
+  );
+  details.push(
+    `Make sure you NEVER push code which has lint errors. If there are lint errors, fix them before committing.`
+  );
+  details.push(
     `You're allowed to ask the Project Manager for more context like file contents or specifications.`
   );
 
@@ -69,6 +76,12 @@ ${directoriesStr.trim()}
   );
   details.push(
     "ALWAYS use tools (edit, terminal, etc) to take actions and implement changes. For example, if you would like to edit a file, you MUST use a tool."
+  );
+  details.push(
+    `If you need more information, or are unsure how to solve an issue, you should use the 'ask_for_help' tool.`
+  );
+  details.push(
+    `DO NOT ask for help unless you've explored all other options, and gathered enough relevant context. When asking for help, you must gather all relevant information to describe the issue you're facing, and the steps you've taken to try to solve it.`
   );
 
   details.push(

@@ -4,16 +4,6 @@ import winston from "winston";
 import { env } from "../env";
 import { defaultWinstonFmt } from "../basic-logger";
 
-export function lint(filePath: string) {
-  const extension = path.extname(filePath);
-  switch (extension) {
-    case ".ts":
-      return lintTypescript(filePath);
-    default:
-      return undefined;
-  }
-}
-
 export const logger = winston.createLogger({
   level: "info",
   format: defaultWinstonFmt,
@@ -27,3 +17,35 @@ export const logger = winston.createLogger({
     }),
   ],
 });
+
+export class LanguageService {
+  constructor() {}
+
+  public lint(filePath: string) {
+    const extension = path.extname(filePath);
+    switch (extension) {
+      case ".js":
+      case ".mjs":
+      case ".cjs":
+      case ".jsx":
+
+      case ".ts":
+      case ".mts":
+      case ".cts":
+      case ".tsx":
+        return lintTypescript(filePath);
+      default:
+        return undefined;
+    }
+  }
+
+  public getPackageManagerInstallCommand(filePath: string) {
+    const extension = path.extname(filePath);
+    switch (extension) {
+      case ".ts":
+        return "pnpm install";
+    }
+  }
+}
+
+export const languageService = new LanguageService();

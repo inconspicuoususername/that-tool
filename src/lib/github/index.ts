@@ -136,6 +136,25 @@ export class GitHubWrapper {
     await repo.checkout(branchName);
   }
 
+  async branchExists(owner: string, repo: string, branch: string) {
+    try {
+      const client = await this.findRepoClient(owner, repo);
+      await client.rest.repos.getBranch({
+        owner,
+        repo,
+        branch,
+      });
+      return true;
+    } catch (e) {
+      const err = e as Error;
+      if (err.message.includes("Branch not found")) {
+        return false;
+      } else {
+        throw e;
+      }
+    }
+  }
+
   async createBranch(
     repoPath: string,
     branchName: string,
@@ -145,33 +164,21 @@ export class GitHubWrapper {
     }
   ): Promise<boolean> {
     //true -> branch already exists, false -> branch created
-    const client = await this.findRepoClient(original.owner, original.repo);
-    try {
-      const branch = await client.rest.repos.getBranch({
-        owner: original.owner,
-        repo: original.repo,
-        branch: branchName,
-      });
+    const branchExists = await this.branchExists(
+      original.owner,
+      original.repo,
+      branchName
+    );
+    if (branchExists) {
       this.logger.info("Branch already exists:", branchName);
-      // this.logger.info("Deleting branch:", branchName);
-      // await client.rest.git.deleteRef({
-      //   owner: original.owner,
-      //   repo: original.repo,
-      //   ref: `heads/${branchName}`,
-      // });
-    } catch (e) {
-      const err = e as Error;
-      if (err.message.includes("Branch not found")) {
-        this.logger.info("Branch not found. Creating branch:", branchName);
-        this.logger.info("Creating branch:", branchName, "in repo:", repoPath);
-        const repo = simpleGit(repoPath);
-        await repo.checkoutLocalBranch(branchName);
-        return false;
-      } else {
-        throw e;
-      }
+      return true;
+    } else {
+      this.logger.info("Branch not found. Creating branch:", branchName);
+      this.logger.info("Creating branch:", branchName, "in repo:", repoPath);
+      const repo = simpleGit(repoPath);
+      await repo.checkoutLocalBranch(branchName);
+      return false;
     }
-    return true;
   }
 
   async commitAndPush(
