@@ -26,6 +26,7 @@ import {
   SubTaskRecord,
   TaskGithubInfoRecord,
   TaskRecord,
+  TaskStatus,
   taskFinalStatuses,
 } from "@/types/db";
 import archiver from "archiver";
@@ -36,6 +37,11 @@ import { env } from "@/lib/env";
 import winston from "winston";
 import { pick } from "lodash";
 import { alias } from "drizzle-orm/pg-core";
+import { createTaskMemory, initializeTaskMemories } from "./memory";
+
+type TaskDepGraph = Map<number, Set<number>>;
+
+type TaskDepMap = Map<number, TaskRecord>;
 
 export class TaskService {
   constructor(
@@ -47,39 +53,6 @@ export class TaskService {
   ) {
     this._init();
   }
-
-  // private async test() {
-  //   const task = await db.query.tasks.findFirst({
-  //     where: eq(tasks.id, 51),
-  //   });
-
-  //   if (!task) {
-  //     throw new Error("Task not found");
-  //   }
-
-  //   const a = {
-  //     type: "help_request",
-  //     query: `I updated the type signature in the router.post method, but I'm still encountering type errors. The error indicates a mismatch and refers to properties missing from the expected 'Application' type. Can you provide guidance on how to resolve this issue?`,
-  //   };
-
-  //   const st = await this.createContinuationSubTask(
-  //     task,
-  //     `In response to your question, the PM said:
-
-  //     @You Hi, no problem. The issue seems to be the return statement in:
-
-  //     \`\`\`
-  //     if (!title || !description || !dueDate) {
-  //         return res.status(400).json({ error: 'Title, description, and dueDate are required.' });
-  //       }
-  //     \`\`\`
-
-  //     With the return statement, the function does not match the type signature of express' route handler. Without the return statement, the route handler should work.
-  //     Hope that helps!`
-  //   );
-
-  //   console.log(st);
-  // }
 
   private async _init() {
     // Create logs directory
@@ -97,29 +70,34 @@ export class TaskService {
       ["pull_request_review", "pull_request.closed"],
       this.onWebhookHandler
     );
-    this.logger.info("Initializing webhooks for incomplete tasks");
+
+    const dbProjects = await db.select().from(projects);
+    // .where(eq(projects.shouldHaveMemories, true));
+
+    this.logger.info(
+      "Initializing task memories for " + dbProjects.length + " projects"
+    );
+
+    for (const project of dbProjects) {
+      await initializeTaskMemories(project);
+    }
+
     await this._initAndRescheduleIncompleteTasks();
-
-    // await this.test();
-
-    this.runloop();
+    this.runLoop();
   }
 
-  private async runloop() {
+  private async runLoop() {
     while (true) {
       await this.runRunnableTasks();
-      await new Promise((resolve) => setTimeout(resolve, 8 * 1000));
+      await new Promise((resolve) => setTimeout(resolve, 15 * 1000));
     }
   }
 
   private async runRunnableTasks() {
-    const dependentTasksAlias = alias(tasks, "dependent_tasks");
     const projectMutex = new Set<string>();
     const projectsWithoutRunningCTE = db.$with("projects_without_running").as(
       db
-        .select({
-          projectId: projects.id,
-        })
+        .select()
         .from(projects)
         .where(
           notExists(
@@ -136,49 +114,29 @@ export class TaskService {
         )
     );
 
-    const oneTaskPerProjectCTE = db.$with("one_task_per_project").as(
-      db
-        .selectDistinctOn([projects.id], {
-          projectId: projects.id,
-        })
-        .from(projects)
-        .innerJoin(
-          projectsWithoutRunningCTE,
-          eq(projects.id, projectsWithoutRunningCTE.projectId)
-        )
-        .orderBy(projects.id)
-    );
-
-    const runnableTasksRetQuery = db
-      .with(projectsWithoutRunningCTE, oneTaskPerProjectCTE)
+    const projectTasks = await db
+      .with(projectsWithoutRunningCTE)
       .select()
-      .from(oneTaskPerProjectCTE)
-      .innerJoin(tasks, eq(tasks.projectId, oneTaskPerProjectCTE.projectId))
-      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .from(tasks)
+      .innerJoin(
+        projectsWithoutRunningCTE,
+        eq(tasks.projectId, projectsWithoutRunningCTE.id)
+      )
       .leftJoin(subTasks, eq(tasks.currentSubTaskId, subTasks.id))
       .leftJoin(taskGithubInfo, eq(tasks.id, taskGithubInfo.taskId))
-      .leftJoinLateral(
-        db
-          .select({
-            id: taskDependencies.id,
-            dependencyTaskId: taskDependencies.dependencyTaskId,
-            dependencyTaskStatus: dependentTasksAlias.status,
-          })
-          .from(taskDependencies)
-          .innerJoin(
-            dependentTasksAlias,
-            eq(taskDependencies.dependencyTaskId, dependentTasksAlias.id)
-          )
-          .where(eq(taskDependencies.taskId, tasks.id))
-          .as("task_dependencies"),
-        sql`true`
-      )
-      .where(or(eq(tasks.status, "pending")))
       .orderBy(asc(tasks.createdAt));
 
     // console.log(runnableTasksRetQuery.toSQL());
 
-    const runnableTasksRet = await runnableTasksRetQuery;
+    const deps = await db
+      .select({
+        id: taskDependencies.id,
+        taskId: taskDependencies.taskId,
+        dependencyTaskId: taskDependencies.dependencyTaskId,
+        dependencyTaskStatus: tasks.status,
+      })
+      .from(taskDependencies)
+      .innerJoin(tasks, eq(taskDependencies.taskId, tasks.id));
 
     // const runnableTasksRet = await db
     //   .selectDistinctOn([projects.id])
@@ -220,68 +178,58 @@ export class TaskService {
     //   )
     //   .orderBy(projects.id, asc(tasks.createdAt));
 
-    const runnableTasks = runnableTasksRet.reduce(
-      (acc, curr) => {
-        const prev = acc[curr.tasks.id];
-        if (prev) {
-          if (curr.task_dependencies) {
-            prev.taskDependencies.push({
-              id: curr.task_dependencies.id,
-              dependencyTaskId: curr.task_dependencies.dependencyTaskId,
-              dependencyTaskStatus: curr.task_dependencies.dependencyTaskStatus,
-            });
-          }
-        } else {
+    const runnableTasks = projectTasks
+      .filter((x) => x.tasks.status === "pending")
+      .reduce(
+        (acc, curr) => {
           acc[curr.tasks.id] = {
             ...curr.tasks,
             githubInfo: curr.task_github_info,
-            project: curr.projects,
+            project: curr.projects_without_running,
             currentSubTask: curr.sub_tasks,
-            taskDependencies: curr.task_dependencies
-              ? [
-                  {
-                    id: curr.task_dependencies.id,
-                    dependencyTaskId: curr.task_dependencies.dependencyTaskId,
-                    dependencyTaskStatus:
-                      curr.task_dependencies.dependencyTaskStatus,
-                  },
-                ]
-              : [],
           };
-        }
-        return acc;
-      },
-      {} as Record<
-        number,
-        TaskRecord & {
-          githubInfo: TaskGithubInfoRecord | null;
-          project: ProjectRecord;
-          currentSubTask: SubTaskRecord | null;
-          taskDependencies: {
-            id: number;
-            dependencyTaskId: number;
-            dependencyTaskStatus:
-              | "pending"
-              | "running"
-              | "awaiting_approval"
-              | "awaiting_help"
-              | "complete"
-              | "error"
-              | "closed"
-              | "killed";
-          }[];
-        }
-      >
-    );
+          return acc;
+        },
+        {} as Record<
+          number,
+          TaskRecord & {
+            githubInfo: TaskGithubInfoRecord | null;
+            project: ProjectRecord;
+            currentSubTask: SubTaskRecord | null;
+          }
+        >
+      );
 
-    for (const task of Object.values(runnableTasks)) {
+    const depGraph: TaskDepGraph = new Map();
+    const taskMap: TaskDepMap = new Map();
+
+    for (const { taskId, dependencyTaskId, dependencyTaskStatus } of deps) {
+      if (!depGraph.has(taskId)) {
+        depGraph.set(taskId, new Set());
+      }
+
+      depGraph.get(taskId)!.add(dependencyTaskId);
+
+      // Ensure all tasks exist in graph even if they have no outgoing edges
+      if (!depGraph.has(dependencyTaskId)) {
+        depGraph.set(dependencyTaskId, new Set());
+      }
+    }
+
+    const runnableTasksArray = Object.values(runnableTasks);
+
+    for (const task of projectTasks) {
+      taskMap.set(task.tasks.id, task.tasks);
+    }
+
+    for (const task of runnableTasksArray) {
       const slug = task.project.id;
       if (projectMutex.has(slug)) {
         continue;
       }
 
       projectMutex.add(slug);
-      if (!(await this.canExecuteTask(task, task.taskDependencies))) {
+      if (!(await this.canExecuteTask(task.project, task, depGraph, taskMap))) {
         this.logger.debug("Task dependencies not met. Skipping task:", task.id);
         projectMutex.delete(slug);
         continue;
@@ -331,8 +279,7 @@ export class TaskService {
         }
 
         return;
-      }
-      throw error;
+      } else throw error;
     }
 
     // if (!githubInfo.pullRequest) {
@@ -376,6 +323,25 @@ export class TaskService {
       return;
     }
 
+    // delete any existing PRs for this task if the creator is agent
+    if (githubInfo) {
+      const pr = await this.github.getPRByBranch(
+        project.owner,
+        project.repo,
+        githubInfo?.targetBranch
+      );
+
+      if (pr && pr.user?.login === this.github.githubUsername) {
+        this.logger.info(
+          "Deleting existing PR for task:",
+          task.id,
+          "PR Number:",
+          pr.number
+        );
+        await this.github.closePR(project.owner, project.repo, pr.number);
+      }
+    }
+
     const { workDir, logFile } = await this._setupSubTask(task, githubInfo);
 
     const subtask = await this.resetSubtask(currentSubTask);
@@ -397,6 +363,7 @@ export class TaskService {
     );
 
     const instance = await this.llmScheduler.executeTask(
+      project,
       subtask,
       workDir,
       logFile
@@ -411,26 +378,63 @@ export class TaskService {
   }
 
   private async canExecuteTask(
+    project: ProjectRecord,
     task: TaskRecord,
-    deps: {
-      id: number;
-      dependencyTaskId: number;
-      dependencyTaskStatus:
-        | "pending"
-        | "running"
-        | "awaiting_approval"
-        | "awaiting_help"
-        | "complete"
-        | "error"
-        | "closed"
-        | "killed";
-    }[]
+    depGraph: TaskDepGraph,
+    taskMap: TaskDepMap
   ) {
-    for (const dep of deps) {
-      const depStatus = dep.dependencyTaskStatus;
-      if (depStatus !== "complete" && depStatus != "awaiting_approval") {
-        return false;
+    const visited = new Set<number>();
+
+    const depsInfo = {
+      totalNum: 0,
+      awaitingNum: 0,
+      completeNum: 0,
+      allCompleteBefore: true,
+    };
+
+    const depsArray = depGraph.get(task.id);
+
+    const stack = (depsArray ? [...depsArray] : []).map((x) => ({
+      taskId: x,
+      currentLength: 1,
+    }));
+
+    while (stack.length > 0) {
+      const stackItem = stack.pop()!;
+      visited.add(stackItem.taskId);
+      const { taskId, currentLength } = stackItem;
+      const deps = depGraph.get(taskId);
+      if (!deps) continue;
+      depsInfo.totalNum++;
+
+      const taskInfo = taskMap.get(taskId);
+      if (!taskInfo) continue;
+
+      if (taskInfo?.status === "complete") {
+        depsInfo.completeNum++;
+      } else {
+        depsInfo.allCompleteBefore = false;
       }
+
+      if (taskInfo.status === "awaiting_approval") {
+        depsInfo.awaitingNum++;
+      }
+
+      for (const depTaskId of deps) {
+        if (visited.has(depTaskId)) {
+          continue;
+        }
+
+        stack.push({ taskId: depTaskId, currentLength: currentLength + 1 });
+      }
+    }
+
+    if (depsInfo.totalNum != depsInfo.completeNum + depsInfo.awaitingNum) {
+      return false;
+    }
+
+    if (depsInfo.awaitingNum >= project.maxChainedPRs) {
+      return false;
     }
 
     return true;
@@ -678,10 +682,12 @@ export class TaskService {
     projectName,
     owner,
     repo,
+    defaultModel,
   }: {
     projectName: string;
     owner: string;
     repo: string;
+    defaultModel?: string;
   }) {
     const projectRecord = await db
       .insert(projects)
@@ -689,6 +695,7 @@ export class TaskService {
         projectName,
         repo,
         owner,
+        defaultModel: defaultModel ?? env.openai.defaultModel,
       })
       .returning();
 
@@ -1092,6 +1099,8 @@ ${startTask.prompt}`,
           throw new Error("Github info not found. Malformed task.");
         }
 
+        let commitMessage = "";
+
         if (output?.type === "help_request") {
           this.logger.info("Help request received:", output.query);
           //write comment on linked issue
@@ -1116,57 +1125,39 @@ ${startTask.prompt}`,
             );
           }
 
-          this.logger.info("Creating branch:", githubInfo.targetBranch);
-          await this.github.createBranch(
-            setup.workDir,
-            githubInfo.targetBranch,
-            {
-              owner: project.owner,
-              repo: project.repo,
-            }
-          );
-          this.logger.info("Checking out branch:", githubInfo.targetBranch);
-          await this.github.checkoutBranch(
-            setup.workDir,
-            githubInfo.targetBranch
-          );
-          this.logger.info("Committing and pushing:", githubInfo.targetBranch);
-          await this.github.commitAndPush(
-            setup.workDir,
-            githubInfo.targetBranch,
-            "feat: incomplete commit for task: " + task.id + " (help requested)"
-          );
-          return;
+          commitMessage =
+            "feat: incomplete commit for task: " +
+            task.id +
+            " (help requested)";
+        } else {
+          commitMessage = output?.commitMessage || "No commit message.";
         }
-
-        if (!githubInfo.pullRequest) {
-          this.logger.info("Creating branch:", githubInfo.targetBranch);
-          await this.github.createBranch(
-            setup.workDir,
-            githubInfo.targetBranch,
-            {
-              owner: project.owner,
-              repo: project.repo,
-            }
-          );
-          this.logger.info("Checking out branch:", githubInfo.targetBranch);
-          await this.github.checkoutBranch(
-            setup.workDir,
-            githubInfo.targetBranch
-          );
-        }
+        this.logger.info("Creating branch:", githubInfo.targetBranch);
+        await this.github.createBranchIfNotExists(
+          setup.workDir,
+          githubInfo.targetBranch,
+          {
+            owner: project.owner,
+            repo: project.repo,
+          }
+        );
+        this.logger.info("Checking out branch:", githubInfo.targetBranch);
+        await this.github.checkoutBranch(
+          setup.workDir,
+          githubInfo.targetBranch
+        );
         this.logger.info("Committing and pushing:", githubInfo.targetBranch);
         await this.github.commitAndPush(
           setup.workDir,
           githubInfo.targetBranch,
-          output?.commitMessage || "No commit message."
+          commitMessage
         );
-        if (!githubInfo.pullRequest) {
+        if (!githubInfo.pullRequest && output?.type === "tool_result") {
           this.logger.info("Creating pull request:", githubInfo.targetBranch);
           const pullRequest = await this.github.createPullRequest({
             owner: project.owner,
             repository: project.repo,
-            title: output?.commitMessage || "No commit message.",
+            title: commitMessage,
             head: githubInfo.targetBranch,
             base: githubInfo.startBranch,
             body:
@@ -1208,6 +1199,8 @@ ${startTask.prompt}`,
       } else {
         await this._onTaskApproved(task);
       }
+
+      await createTaskMemory(this.logger, task, project);
     } catch (error) {
       this.logger.error("Error in onSubTaskComplete:", error);
 

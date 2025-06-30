@@ -8,106 +8,57 @@ import {
   pgSchema,
   serial,
   integer,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { LLMHelpRequest, LLMResult } from "@/types/llm-scheduler";
+import { subTaskStatuses, taskStatuses } from "@/types/db";
 
 const schema = pgSchema("ttl_agent");
 const pgTable = schema.table;
 
-// export interface Task {
-//   id: string;
-//   context: {
-//     currentPrompt: string;
-//     terminalService: TerminalService;
-//     toolsService: ToolsService;
-//     editCodeService: EditCodeService;
-//   };
-//   setup?: Setup;
-//   promise: Promise<void>;
-// }
-
-// interface BaseSetup {
-//   type: "local" | "github";
-//   projectName: string;
-//   workDir: string;
-//   logFile: string;
-//   modelName: string;
-// }
-
-// export interface GithubSetup extends BaseSetup {
-//   type: "github";
-//   github: GitHubWrapper;
-//   owner: string;
-//   repo: string;
-//   privateAccessToken: string;
-//   startBranch: string;
-//   targetBranch: string;
-//   pullRequest?: {
-//     id: number;
-//     number: number;
-//     state: string;
-//     title: string;
-//     body: string | null;
-//     url: string;
-//   };
-// }
-
-export const projects = pgTable("projects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  projectName: text("project_name").notNull().unique(),
+const defaultColumns = {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
     .notNull()
     .$onUpdate(() => new Date()),
+};
+
+export const projects = pgTable("projects", {
+  ...defaultColumns,
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectName: text("project_name").notNull().unique(),
   repo: text("repo").notNull(),
   owner: text("owner").notNull(),
 
   projectSpecification: text("project_specification"),
   defaultBaseBranch: text("default_base_branch").notNull().default("main"),
-  defaultModel: text("default_model").notNull().default("gpt-4o-mini"),
+  defaultModel: text("default_model").notNull(),
+
+  shouldHaveMemories: boolean("should_have_memories").notNull().default(false),
+  shouldOverwriteMemories: boolean("should_overwrite_memories")
+    .notNull()
+    .default(false),
+  memoryVectorStoreId: text("memory_vector_store_id"),
+  maxLLMRetries: integer("max_llm_retries").notNull().default(3),
+
+  maxChainedPRs: integer("max_chained_prs").notNull().default(3),
 });
 
 export const tasks = pgTable("tasks", {
+  ...defaultColumns,
   id: serial("id").primaryKey(),
   projectId: uuid("project_id").notNull(),
   webhookURL: text("webhook_url"),
-  // owner: string;
-  // repo: string;
-  // privateAccessToken: string;
-  // startBranch: string;
-  // targetBranch: string;
-  // pullRequest?: {
-  //   id: number;
-  //   number: number;
-  //   state: string;
-  //   title: string;
-  //   body: string | null;
-  //   url: string;
-  // };
   currentSubTaskId: integer("current_sub_task_id"),
   type: varchar("type", {
     enum: ["github", "local"],
   }).notNull(),
   status: varchar("status", {
-    enum: [
-      "pending",
-      "running",
-      "awaiting_approval",
-      "awaiting_help",
-      "complete",
-      "error",
-      "closed",
-      "killed",
-    ],
+    enum: taskStatuses,
   })
     .notNull()
     .default("pending"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .notNull()
-    .$onUpdate(() => new Date()),
 });
 
 export const taskDependencies = pgTable("task_dependencies", {
@@ -120,6 +71,15 @@ export const taskDependencies = pgTable("task_dependencies", {
     .notNull(),
 });
 
+export const memories = pgTable("memories", {
+  ...defaultColumns,
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id")
+    .references(() => tasks.id, { onDelete: "cascade" })
+    .notNull(),
+  content: text("content").notNull(),
+  fileId: text("file_id").notNull(),
+});
 /*
 
 pullRequest: z
@@ -174,7 +134,7 @@ export const subTasks = pgTable("sub_tasks", {
   prompt: text("prompt").notNull(),
   currentOAIResponseId: text("current_oai_response_id"),
   status: varchar("status", {
-    enum: ["pending", "running", "complete", "killed"],
+    enum: subTaskStatuses,
   })
     .notNull()
     .default("pending"),

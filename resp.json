@@ -1,0 +1,60 @@
+{
+  "id": "resp_6855559532308192870d638da70deeb602e8800a61e88ba9",
+  "object": "response",
+  "created_at": 1750422933,
+  "status": "completed",
+  "background": false,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "\nYou are summarizing the knowledge you gained during a programmoing task.\nFocus on the most relevant project-specific information, and format it in markdown for storage.\nEnsure that the summary includes key insights from actions taken, such as tool calls, questions asked, discoveries, and solutions.\nWhen writing the summary, imagine that you are talking to yourself.\n\n# Steps\n\n1. **Identify Key Actions**: Review your actions to determine which are most relevant for gaining project-specific knowledge.\n2. **Extract Insights**: From these actions, extract meaningful insights, details, solutions, and any new knowledge.\n3. **Summarize**: Consolidate the extracted information into a clear, concise summary.\n4. **Format in Markdown**: Structure the summary using markdown syntax to facilitate easy storage and reference.\n\n# Output Format\n\nThe output should be formatted in markdown, focusing on clarity and conciseness. Use headers, bullet points, or numbered lists as needed to organize information effectively. Only include the most relevant and significant knowledge.\n\n# Example\n\n**Project Knowledge Summary**\n\n### Questions Asked\n-**Question**: Description of the question.\n- **Insight Gained**: The answer and its relevance to the project.\n\n### Discoveries and insights\n- **Discovery Description**: Details of the discovery and its impact on the project.\n\n### Solutions\n- **Problem**: Brief description of the problem.\n- **Solution**: Summary of how it was resolved.\n",
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "model": "o4-mini-2025-04-16",
+  "output": [
+    {
+      "id": "msg_68555596abe08192a247e515c4697c2402e8800a61e88ba9",
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "I’ve implemented frontend session management:\n\n- Stored JWT token in `localStorage` on successful login.\n- Added `src/lib/api.ts` exporting an `authFetch` wrapper to include the stored token in the `Authorization` header for protected API calls.\n\nYou can now use `authFetch` in place of `fetch` when accessing protected routes."
+        }
+      ],
+      "role": "assistant"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": "resp_685417b0aa98819286e108c62d6a4b7202e8800a61e88ba9",
+  "reasoning": {
+    "effort": "medium",
+    "summary": null
+  },
+  "service_tier": "default",
+  "store": true,
+  "temperature": 1,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 18782,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 74,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 18856
+  },
+  "user": null,
+  "metadata": {},
+  "output_text": "I’ve implemented frontend session management:\n\n- Stored JWT token in `localStorage` on successful login.\n- Added `src/lib/api.ts` exporting an `authFetch` wrapper to include the stored token in the `Authorization` header for protected API calls.\n\nYou can now use `authFetch` in place of `fetch` when accessing protected routes."
+}

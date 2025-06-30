@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { ToolsService } from "./services/tools";
 import { EditCodeService } from "./services/editcode";
 import { TerminalService } from "./services/terminal";
-import { SubTaskRecord } from "@/types/db";
+import { ProjectRecord, SubTaskRecord } from "@/types/db";
 import {
   SubtaskInstance,
   SubtaskCompleteCallback,
@@ -61,6 +61,7 @@ export class LLMScheduler {
   }
 
   public async executeTask(
+    project: ProjectRecord,
     task: SubTaskRecord,
     workDir: string,
     logFile: string
@@ -88,6 +89,7 @@ export class LLMScheduler {
     const context = this._setupTaskContext(workDir);
     const subtask = {
       context,
+      project,
       setup: {
         workDir,
         logFile,
@@ -106,6 +108,10 @@ export class LLMScheduler {
         }
       })
       .catch((error) => {
+        this.logger.error("Error executing task:", {
+          error: error.message,
+          stack: error.stack,
+        });
         this._onTaskComplete(subtask, error, null);
       });
     this.runningTasks.push(subtask);

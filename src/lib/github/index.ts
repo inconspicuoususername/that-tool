@@ -1,9 +1,13 @@
 import { App } from "@octokit/app";
-import { Octokit } from "@octokit/rest";
+import { Octokit, RestEndpointMethodTypes } from "@octokit/rest";
 import simpleGit, { SimpleGit } from "simple-git";
 import { HandlerFunction } from "@octokit/webhooks/dist-types/types";
 import { sleep } from "openai/core";
 import winston from "winston";
+
+type PullRequest = Awaited<
+  RestEndpointMethodTypes["pulls"]["list"]["response"]["data"][number]
+>;
 
 export class GithubInstallationError extends Error {
   constructor(message: string) {
@@ -155,7 +159,7 @@ export class GitHubWrapper {
     }
   }
 
-  async createBranch(
+  async createBranchIfNotExists(
     repoPath: string,
     branchName: string,
     original: {
@@ -198,6 +202,38 @@ export class GitHubWrapper {
     await repo.add(".");
     await repo.commit(commitMessage);
     await repo.push("origin", branchName);
+  }
+
+  async getPRByBranch(
+    owner: string,
+    repo: string,
+    branch: string
+  ): Promise<PullRequest | null> {
+    try {
+      const client = await this.findRepoClient(owner, repo);
+      const pr = await client.pulls.list({
+        owner,
+        repo,
+        head: `${owner}:${branch}`,
+      });
+      return pr.data.length > 0 ? pr.data[0] : null;
+    } catch (e) {
+      const err = e as Error;
+      if (err.message.includes("No pull requests found")) {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  async closePR(owner: string, repo: string, prNumber: number) {
+    const client = await this.findRepoClient(owner, repo);
+    await client.pulls.update({
+      owner,
+      repo,
+      pull_number: prNumber,
+      state: "closed",
+    });
   }
 
   public async findRepoClient(owner: string, repository: string) {

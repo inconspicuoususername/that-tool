@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."projects" ADD COLUMN "should_overwrite_memories" boolean DEFAULT false NOT NULL;

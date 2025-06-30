@@ -23,6 +23,7 @@ export const env = {
   simpleAuthToken: getOrDefault("SIMPLE_AUTH_TOKEN"),
   openai: {
     apiKey: getOrDefault("OPENAI_API_KEY"),
+    defaultModel: getOrDefault("GITHUB_DEFAULT_OPENAI_MODEL", "o4-mini"),
   },
   shouldAskForTool: getOrDefaultBoolean("SHOULD_ASK_FOR_TOOL", false),
   projectsRootDir: getOrDefault(
@@ -30,8 +31,8 @@ export const env = {
     path.join(process.cwd(), "projects")
   ),
   logDir: getOrDefault("LOG_DIR", path.join(process.cwd(), ".logs")),
+  memoryDir: getOrDefault("MEMORY_DIR", path.join(process.cwd(), ".memory")),
   github: {
-    defaultOpenaiModel: getOrDefault("GITHUB_DEFAULT_OPENAI_MODEL", "gpt-4o-mini"),
     appId: getOrDefault("GITHUB_APP_ID"),
     privateKeyFile: getOrDefault("GITHUB_APP_PK_FILE"),
     webhookSecret: getOrDefault("GITHUB_WEBHOOK_SECRET"),

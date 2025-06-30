@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."projects" ADD COLUMN "max_chained_prs" integer DEFAULT 3 NOT NULL;

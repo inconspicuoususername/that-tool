@@ -1,7 +1,12 @@
 import { EditCodeService } from "@/llm/services/editcode";
 import { TerminalService } from "@/llm/services/terminal";
 import { ToolsService } from "@/llm/services/tools";
-import { SubTaskRecord, TaskGithubInfoRecord, TaskRecord } from "./db";
+import {
+  ProjectRecord,
+  SubTaskRecord,
+  TaskGithubInfoRecord,
+  TaskRecord,
+} from "./db";
 
 export interface SubtaskSetup {
   workDir: string;
@@ -16,6 +21,7 @@ export interface SubtaskInstance {
     toolsService: ToolsService;
     editCodeService: EditCodeService;
   };
+  project: ProjectRecord;
   subtask: SubTaskRecord;
   promise: Promise<void>;
 }

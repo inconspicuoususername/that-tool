@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."projects" ADD COLUMN "max_llm_retries" integer DEFAULT 3 NOT NULL;

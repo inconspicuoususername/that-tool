@@ -106,9 +106,9 @@ export class IssueService {
       );
       if (!res) {
         this.logger.warn(
-          `Failed to process subissue ${subIssue.number} for epic ${epic.number} in ${owner}/${repo}. Skipping.`
+          `Failed to process subissue ${subIssue.number} for epic ${epic.number} in ${owner}/${repo}. Cannot continue.`
         );
-        continue;
+        return;
       }
 
       this.logger.info(
@@ -274,12 +274,21 @@ export class IssueService {
     });
   }
 
+  private currentlyProcessingIssues = new Set<number>();
+
   public async processIssue(
     issue: GitHubIssue,
     taskDependencies: number[],
     project: ProjectRecord,
     baseBranch?: string
   ): Promise<TaskServiceResult | null> {
+    if (this.currentlyProcessingIssues.has(issue.number)) {
+      this.logger.info(
+        `Issue ${issue.number} is already being processed. Skipping.`
+      );
+      return null;
+    }
+    this.currentlyProcessingIssues.add(issue.number);
     const repo = project.repo;
     const owner = project.owner;
 
@@ -375,7 +384,6 @@ export class IssueService {
       this.logger.error(
         `Failed to comment on issue ${issue.number} for ${owner}/${repo}. Error: ${e}`
       );
-      return null;
     }
 
     const startBranch = baseBranch ?? project.defaultBaseBranch;
@@ -417,6 +425,8 @@ If you have questions, use the 'ask_for_help' tool to ask questions.
       return null;
     }
 
+    this.currentlyProcessingIssues.delete(issue.number);
+
     return newTask;
   }
 
@@ -434,7 +444,10 @@ If you have questions, use the 'ask_for_help' tool to ask questions.
       );
 
     if (issueTasks.length === 0) {
-      this.logger.warn("No relevanttask found for issue:", issueNumber);
+      this.logger.warn(
+        "comments: Nothing relevant found for issue:",
+        issueNumber
+      );
       return null;
     }
 

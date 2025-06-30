@@ -106,6 +106,34 @@
       "when": 1750339064324,
       "tag": "0014_material_steel_serpent",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1750531365400,
+      "tag": "0015_rapid_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1750938865512,
+      "tag": "0016_special_clea",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1750945273382,
+      "tag": "0017_organic_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1751317072887,
+      "tag": "0018_short_annihilus",
+      "breakpoints": true
     }
   ]
 }
