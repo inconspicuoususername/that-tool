@@ -936,6 +936,10 @@ ${startTask.prompt}`,
       githubInfoRecord
     );
 
+    if (projectRecord.beforeStartShellScript) {
+      await this.runShellScript(projectRecord.beforeStartShellScript, workDir);
+    }
+
     return {
       workDir,
       logFile,

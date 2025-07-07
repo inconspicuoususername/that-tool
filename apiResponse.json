@@ -1,0 +1,104 @@
+{
+  "id": "resp_6863b44573c881a3853be3115ce8181202a2f39465f01670",
+  "object": "response",
+  "created_at": 1751364677,
+  "status": "completed",
+  "background": false,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "You are given control of a web browser. Please do what the user asks.",
+  "max_output_tokens": null,
+  "max_tool_calls": null,
+  "model": "o4-mini-2025-04-16",
+  "output": [
+    {
+      "id": "rs_6863b445e20081a3b6253e3a7705bfed02a2f39465f01670",
+      "type": "reasoning",
+      "summary": []
+    },
+    {
+      "id": "fc_6863b4dcfe8481a3baf68ef3adc81ac302a2f39465f01670",
+      "type": "function_call",
+      "status": "completed",
+      "arguments": "{}",
+      "call_id": "call_Qr6gs9MwV4Ta96UoKLXEfKrP",
+      "name": "open_browser"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": "resp_6863b2ee0e1881a3892b0e69acf778cf02a2f39465f01670",
+  "reasoning": {
+    "effort": "high",
+    "summary": null
+  },
+  "service_tier": "default",
+  "store": true,
+  "temperature": 1,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "function",
+      "description": "Open a puppeteer browser instance. This persists across calls.",
+      "name": "open_browser",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": true
+    },
+    {
+      "type": "function",
+      "description": "Close the puppeteer browser instance.",
+      "name": "close_browser",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "strict": true
+    },
+    {
+      "type": "function",
+      "description": "Execute code in Puppeteer environment.         Everything you console.log will be outputted back to you.             Use this to navigate around web pages, get page content, click buttons, etc.             Actions persist across calls. If you want to restart, close the browser and open a new one.            Requires an open browser instance.",
+      "name": "browser_repl",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "js_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "js_code"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  ],
+  "top_logprobs": 0,
+  "top_p": 1,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 364,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 14800,
+    "output_tokens_details": {
+      "reasoning_tokens": 14784
+    },
+    "total_tokens": 15164
+  },
+  "user": null,
+  "metadata": {},
+  "output_text": ""
+}

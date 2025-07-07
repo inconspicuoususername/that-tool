@@ -78,6 +78,12 @@ ${directoriesStr.trim()}
     `If you think you should use tools, you do not need to ask for permission.`
   );
   details.push(
+    `You've been provided with tools to access the web, including a browser agent that you can give instructions to browse the web. \
+Use them to gather information, read documentation, and inform yourself. \
+Remember: your knowledge is outdated, so you will need to use the web browser to \
+find up-to-date information regarding languages, frameworks, libraries, etc.`
+  );
+  details.push(
     `Make sure you NEVER push code which has lint errors. If there are lint errors, fix them before committing.`
   );
   details.push(

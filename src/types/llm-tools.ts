@@ -16,7 +16,9 @@ export type ToolName =
   | "run_persistent_command"
   | "open_persistent_terminal"
   | "kill_persistent_terminal"
-  | "ask_for_help";
+  | "ask_for_help"
+  | "browser_agent"
+  | "fetch";
 
 export interface ToolCallParams {
   read_file: {
@@ -83,7 +85,27 @@ export interface ToolCallParams {
   ask_for_help: {
     query: string;
   };
+  browser_agent: {
+    instructions: string;
+  };
+  fetch: {
+    url: string;
+    method?: string;
+    body?: string;
+    headers?: Record<string, string>;
+  };
 }
+
+export type BaseToolResult<T> =
+  | {
+      success: true;
+      result: T;
+    }
+  | {
+      success: false;
+      error: string;
+      result?: undefined;
+    };
 
 export interface ToolResult {
   read_file: {
@@ -147,6 +169,14 @@ export interface ToolResult {
   ask_for_help: {
     response: string;
   };
+  browser_agent: BaseToolResult<string>;
+  fetch: BaseToolResult<{
+    status: number;
+    statusText: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  }>;
 }
 
 export interface LLMMessage {

@@ -19,6 +19,7 @@ import {
   LintTypescriptResponse,
 } from "@/lib/lint/ts";
 import { languageService } from "@/lib/lint";
+import { runBrowserAgent } from "../browser";
 
 export class ToolsService {
   private workspacePath: string;
@@ -361,6 +362,52 @@ export class ToolsService {
     };
   }
 
+  async browserAgent(
+    params: ToolCallParams["browser_agent"]
+  ): Promise<ToolResult["browser_agent"]> {
+    try {
+      const result = await runBrowserAgent({
+        instructions: params.instructions,
+      });
+      return {
+        success: true,
+        result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        result: undefined,
+      };
+    }
+  }
+
+  async fetch(params: ToolCallParams["fetch"]): Promise<ToolResult["fetch"]> {
+    try {
+      const result = await fetch(params.url, {
+        method: params.method,
+        body: params.body,
+        headers: params.headers,
+      });
+      return {
+        success: true,
+        result: {
+          status: result.status,
+          statusText: result.statusText,
+          url: result.url,
+          headers: Object.fromEntries(result.headers.entries()),
+          body: await result.text(),
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+        result: undefined,
+      };
+    }
+  }
+
   toolNameValid(name: string): name is ToolName {
     return isValidTool(name);
   }
@@ -430,6 +477,14 @@ export class ToolsService {
         return this.killPersistentTerminal(
           params as ToolCallParams["kill_persistent_terminal"]
         ) as Promise<ToolResult[T]>;
+      case "browser_agent":
+        return this.browserAgent(
+          params as ToolCallParams["browser_agent"]
+        ) as Promise<ToolResult[T]>;
+      case "fetch":
+        return this.fetch(params as ToolCallParams["fetch"]) as Promise<
+          ToolResult[T]
+        >;
       default:
         throw new Error(`Unknown tool: ${name}`);
     }
@@ -606,6 +661,33 @@ export const toolJSON2 = {
     params: {
       persistent_terminal_id: {
         description: `The ID of the persistent terminal.`,
+      },
+    },
+  },
+  browser_agent: {
+    name: "browser_agent",
+    description: `Call a sub-agent to browse the web for you. Give it detailed instructions on what to do, and what it's supposed to give back to you.`,
+    params: {
+      instructions: {
+        description: `The instructions for the sub-agent.`,
+      },
+    },
+  },
+  fetch: {
+    name: "fetch",
+    description: `Send an HTTP request to a URL and return the results.`,
+    params: {
+      url: {
+        description: `The URL to fetch. Example: "https://www.google.com"`,
+      },
+      method: {
+        description: `Optional. The HTTP method to use. Defaults to GET.`,
+      },
+      body: {
+        description: `Optional. The body of the request. Example: '{"name": "John", "age": 30}'`,
+      },
+      headers: {
+        description: `Optional. The headers of the request. Must be a JSON key-value object. Example: {"Content-Type": "application/json"}`,
       },
     },
   },

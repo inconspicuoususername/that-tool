@@ -43,6 +43,10 @@ export const projects = pgTable("projects", {
   maxLLMRetries: integer("max_llm_retries").notNull().default(3),
 
   maxChainedPRs: integer("max_chained_prs").notNull().default(3),
+
+  beforeStartShellScript: text("before_start_shell_script").default(
+    `pnpm install`
+  ),
 });
 
 export const tasks = pgTable("tasks", {

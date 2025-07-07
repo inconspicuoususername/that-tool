@@ -16,10 +16,7 @@ import {
 import { createDefaultWinstonLogger } from "@/lib/basic-logger";
 import { Logger } from "winston";
 import { SubTaskRecord } from "@/types/db";
-
-function isReasoningModel(modelname: string) {
-  return modelname.startsWith("o");
-}
+import { openAIResponsesCall } from "./openai-api-call";
 
 export async function populatePreviousResponse({
   previousSubtask,
@@ -32,7 +29,7 @@ export async function populatePreviousResponse({
 }): Promise<{
   messages: OpenAI.Responses.ResponseInput;
   toolCalls: OpenAI.Responses.ResponseFunctionToolCall[];
-  previousResponseId: string | null;
+  previousResponseId: string | undefined;
 }> {
   let messages: OpenAI.Responses.ResponseInput = [];
   let toolCalls: OpenAI.Responses.ResponseFunctionToolCall[] = [];
@@ -121,7 +118,7 @@ export async function populatePreviousResponse({
   return {
     messages,
     toolCalls,
-    previousResponseId: previousSubtask?.currentOAIResponseId ?? null,
+    previousResponseId: previousSubtask?.currentOAIResponseId ?? undefined,
   };
 }
 
@@ -257,46 +254,20 @@ export async function executeTask(
       persistentTerminalIDs: terminalService.getTerminalIDs(),
     });
 
-    // logger.info(`System prompt: ${instructions}`);
-    // Get response from LLM
-    let apiResponse: OpenAI.Responses.Response | null = null;
-    let error: Error | null = null;
-
-    for (let i = 0; i < task.project.maxLLMRetries; i++) {
-      try {
-        logger.info(`Calling OpenAI API with model ${task.subtask.modelName}`);
-        apiResponse = await openai.responses.create({
-          model: task.subtask.modelName,
-          input: messages,
-          instructions,
-          tools: toolsDefinition,
-          tool_choice: "auto",
-          reasoning: isReasoningModel(task.subtask.modelName)
-            ? {
-                effort: "high",
-              }
-            : undefined,
-          previous_response_id: previousResponseId,
-        });
-      } catch (e) {
-        error = e as Error;
-      }
-
-      if (apiResponse) {
-        break;
-      } else {
-        logger.warn(
-          `Failed to get response from OpenAI API: ${error?.message}\nRetrying in ${apiRetrySeconds} seconds...`
-        );
-        await new Promise((resolve) =>
-          setTimeout(resolve, apiRetrySeconds * 1000)
-        );
-      }
-    }
+    const { apiResponse, apiError } = await openAIResponsesCall({
+      maxRetries: task.project.maxLLMRetries,
+      retrySeconds: apiRetrySeconds,
+      modelName: task.subtask.modelName,
+      input: messages,
+      instructions,
+      toolsDefinition,
+      previousResponseId,
+      logger,
+    });
 
     if (!apiResponse) {
       throw new Error(
-        `Failed to get response from OpenAI API: ${error?.message}`
+        `Failed to get response from OpenAI API: ${apiError?.message}`
       );
     }
 

@@ -50,3 +50,7 @@ export function getLinuxDistro(): LinuxDistro | undefined {
     return undefined;
   }
 }
+
+export function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
