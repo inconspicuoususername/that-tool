@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { LLMHelpRequest, LLMResult } from "@/types/llm-scheduler";
 import { subTaskStatuses, taskStatuses } from "@/types/db";
+import { PullRequestState } from "@/types/github";
 
 const schema = pgSchema("ttl_agent");
 const pgTable = schema.table;
@@ -44,9 +45,7 @@ export const projects = pgTable("projects", {
 
   maxChainedPRs: integer("max_chained_prs").notNull().default(3),
 
-  beforeStartShellScript: text("before_start_shell_script").default(
-    `pnpm install`
-  ),
+  beforeStartShellScript: text("before_start_shell_script"),
 });
 
 export const tasks = pgTable("tasks", {
@@ -113,6 +112,16 @@ export const taskGithubInfo = pgTable("task_github_info", {
     url: string;
   }>(),
   linkedIssueNumber: integer("linked_issue_number"),
+});
+
+// Database schema for storing PR states (you'll need to create this table)
+export const pullRequestStates = pgTable("pull_request_states", {
+  taskId: integer("task_id")
+    .references(() => tasks.id, { onDelete: "cascade" })
+    .notNull()
+    .primaryKey(),
+  state: jsonb("state").notNull().$type<PullRequestState>(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 /*

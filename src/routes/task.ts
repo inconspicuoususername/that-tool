@@ -4,8 +4,8 @@ import {
   beginEpicRequestSchema,
   updateProjectRequestSchema,
 } from "@/types/api";
-import { Router, Request, Response, RequestHandler } from "express";
-import { serviceMesh } from "@/llm/mesh";
+import { Router, RequestHandler } from "express";
+import { serviceMesh } from "@/services/mesh";
 import { GithubInstallationError } from "@/lib/github";
 
 const startTask: RequestHandler = async (req, res) => {

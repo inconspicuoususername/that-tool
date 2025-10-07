@@ -325,8 +325,8 @@ export async function executeTask(
       messages.push({
         role: "user",
         content:
-          "Continue with the task by using the tools provided. \
-          If you're done with the task, you need to use the 'commit' tool to complete the task.",
+          "If you're done with the task, you need to use the 'commit' tool to complete the task. \
+          Otherwise, continue with the task by using the tools provided.",
       });
       continue;
     }

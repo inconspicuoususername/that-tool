@@ -1,10 +1,10 @@
 import { db } from "@/lib/db";
 import { subTasks, tasks } from "@/lib/db/schema";
-import { executeTask } from "./prompt";
+import { executeTask } from "@/llm/prompt";
 import { eq } from "drizzle-orm";
-import { ToolsService } from "./services/tools";
-import { EditCodeService } from "./services/editcode";
-import { TerminalService } from "./services/terminal";
+import { ToolsService } from "@/llm/services/tools";
+import { EditCodeService } from "@/llm/services/editcode";
+import { TerminalService } from "@/llm/services/terminal";
 import { ProjectRecord, SubTaskRecord } from "@/types/db";
 import {
   SubtaskInstance,
@@ -14,6 +14,9 @@ import {
 } from "@/types/llm-scheduler";
 import winston from "winston";
 import fs from "fs/promises";
+import archiver from "archiver";
+import path from "path";
+import { shouldExcludeDirectory } from "@/llm/services/directory-tree";
 
 export class LLMScheduler {
   private runningTasks: SubtaskInstance[] = [];
@@ -58,6 +61,58 @@ export class LLMScheduler {
         .set({ status: "killed" })
         .where(eq(subTasks.id, task.subtask.id));
     }
+  }
+
+  public async getSubTaskFiles(id: string): Promise<{
+    success: boolean;
+    error?: string;
+    files?: {
+      filename: string;
+      stream: archiver.Archiver;
+    };
+  }> {
+    const subTask = await db.query.subTasks.findFirst({
+      where: eq(subTasks.id, parseInt(id)),
+    });
+
+    if (!subTask) {
+      return {
+        success: false,
+        error: "SubTask not found",
+      };
+    }
+
+    const fpath = await this.getSubtaskWorkDir(subTask.id);
+
+    const files = await fs.readdir(fpath);
+
+    const archive = archiver("zip", {
+      zlib: { level: 9 },
+    });
+
+    for (const file of files) {
+      if (shouldExcludeDirectory(file)) {
+        continue;
+      }
+      const stat = await fs.stat(path.join(fpath, file));
+      if (stat.isDirectory()) {
+        archive.directory(path.join(fpath, file), file);
+      } else {
+        archive.append(file, { name: file });
+      }
+    }
+
+    // archive.pipe()
+
+    return {
+      success: true,
+      files: {
+        filename: `${subTask.taskId}-${
+          subTask.id
+        }-${new Date().toISOString()}.zip`,
+        stream: archive,
+      },
+    };
   }
 
   public async executeTask(

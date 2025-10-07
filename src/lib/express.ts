@@ -1,4 +1,4 @@
-import { serviceMesh } from "@/llm/mesh";
+import { serviceMesh } from "@/services/mesh";
 import { taskRouter } from "@/routes/task";
 import { createNodeMiddleware } from "@octokit/webhooks";
 import { env } from "./env";

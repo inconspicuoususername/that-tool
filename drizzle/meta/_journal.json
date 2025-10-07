@@ -134,6 +134,20 @@
       "when": 1751317072887,
       "tag": "0018_short_annihilus",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1751898759455,
+      "tag": "0019_dark_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1751902150856,
+      "tag": "0020_aspiring_blonde_phantom",
+      "breakpoints": true
     }
   ]
 }

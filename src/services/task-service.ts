@@ -30,14 +30,13 @@ import {
   taskFinalStatuses,
 } from "@/types/db";
 import archiver from "archiver";
-import { shouldExcludeDirectory } from "./services/directory-tree";
 import { LLMScheduler } from "./llm-scheduler";
 import { HandlerFunction } from "@octokit/webhooks/dist-types/types";
 import { env } from "@/lib/env";
 import winston from "winston";
-import { pick } from "lodash";
-import { alias } from "drizzle-orm/pg-core";
-import { createTaskMemory, initializeTaskMemories } from "./memory";
+import { createTaskMemory, initializeTaskMemories } from "@/llm/memory";
+import { ShellService } from "./shell-service";
+import { PullRequestService } from "./pr-service";
 
 type TaskDepGraph = Map<number, Set<number>>;
 
@@ -47,9 +46,11 @@ export class TaskService {
   constructor(
     private projectsRootDir: string,
     private logsDir: string,
+    private logger: winston.Logger,
     private llmScheduler: LLMScheduler,
     private github: GitHubWrapper,
-    private logger: winston.Logger
+    private terminalService: ShellService,
+    private prService: PullRequestService
   ) {
     this._init();
   }
@@ -88,6 +89,23 @@ export class TaskService {
 
   private async runLoop() {
     while (true) {
+      this.logger.debug("Processing pull request updates");
+      const changes = await this.prService.processPullRequestUpdates();
+      for (const change of changes) {
+        switch (change.status) {
+          case "approved":
+            await this._onTaskApproved(change.task);
+            break;
+          case "closed":
+            await this._onTaskClosed(change.task);
+            break;
+          case "changes_requested":
+            await this.addContinuationSubTask(change.task, change.prompt);
+            break;
+        }
+      }
+
+      this.logger.debug("Running runnable tasks");
       await this.runRunnableTasks();
       await new Promise((resolve) => setTimeout(resolve, 15 * 1000));
     }
@@ -910,6 +928,8 @@ ${startTask.prompt}`,
     taskRecord: TaskRecord,
     githubInfoRecord?: TaskGithubInfoRecord
   ) {
+    this.logger.info("Setting up subtask:", taskRecord.id);
+
     const projectRecord = await db.query.projects.findFirst({
       where: eq(projects.id, taskRecord.projectId),
     });
@@ -937,7 +957,17 @@ ${startTask.prompt}`,
     );
 
     if (projectRecord.beforeStartShellScript) {
-      await this.runShellScript(projectRecord.beforeStartShellScript, workDir);
+      this.logger.info("Running before start shell script.");
+      this.logger.debug("Shell script:", projectRecord.beforeStartShellScript);
+      const result = await this.terminalService.runCommand(
+        projectRecord.beforeStartShellScript,
+        30000,
+        workDir
+      );
+
+      if (result.exitCode !== 0) {
+        this.logger.error("Failed to run before start shell script:", result);
+      }
     }
 
     return {
@@ -1008,48 +1038,7 @@ ${startTask.prompt}`,
       stream: archiver.Archiver;
     };
   }> {
-    const subTask = await db.query.subTasks.findFirst({
-      where: eq(subTasks.id, parseInt(id)),
-    });
-
-    if (!subTask) {
-      return {
-        success: false,
-        error: "SubTask not found",
-      };
-    }
-
-    const fpath = await this.llmScheduler.getSubtaskWorkDir(subTask.id);
-
-    const files = await fs.readdir(fpath);
-
-    const archive = archiver("zip", {
-      zlib: { level: 9 },
-    });
-
-    for (const file of files) {
-      if (shouldExcludeDirectory(file)) {
-        continue;
-      }
-      const stat = await fs.stat(path.join(fpath, file));
-      if (stat.isDirectory()) {
-        archive.directory(path.join(fpath, file), file);
-      } else {
-        archive.append(file, { name: file });
-      }
-    }
-
-    // archive.pipe()
-
-    return {
-      success: true,
-      files: {
-        filename: `${subTask.taskId}-${
-          subTask.id
-        }-${new Date().toISOString()}.zip`,
-        stream: archive,
-      },
-    };
+    return this.llmScheduler.getSubTaskFiles(id);
   }
 
   public async onSubTaskComplete(
@@ -1232,7 +1221,7 @@ ${startTask.prompt}`,
     }
   }
 
-  private async _onTaskApproved(task: TaskRecord) {
+  public async _onTaskApproved(task: TaskRecord) {
     this.logger.info("Task has been approved. Finalizing task:", task.id);
     const newRecord = await db
       .update(tasks)
@@ -1290,7 +1279,7 @@ ${startTask.prompt}`,
     this.onSubtaskCompleteCallbacks.delete(taskId);
   }
 
-  private async _onTaskClosed(task: TaskRecord) {
+  public async _onTaskClosed(task: TaskRecord) {
     await db
       .update(tasks)
       .set({

@@ -5,6 +5,8 @@ import { createDefaultWinstonLogger } from "@/lib/basic-logger";
 import { GitHubWrapper } from "@/lib/github";
 import { env } from "@/lib/env";
 import fs from "fs";
+import { ShellService } from "./shell-service";
+import { PullRequestService } from "./pr-service";
 
 export function newServiceMesh(projectsRootDir: string, logsDir: string) {
   const pkFile = env.github.privateKeyFile;
@@ -21,12 +23,22 @@ export function newServiceMesh(projectsRootDir: string, logsDir: string) {
   const llmScheduler = new LLMScheduler(
     createDefaultWinstonLogger("LLMScheduler", "llm-scheduler.log")
   );
+  const terminalService = new ShellService(
+    createDefaultWinstonLogger("ShellService", "shell-service.log")
+  );
+
+  const prService = new PullRequestService(
+    createDefaultWinstonLogger("PullRequestService", "pr-service.log"),
+    github
+  );
   const taskService = new TaskService(
     projectsRootDir,
     logsDir,
+    createDefaultWinstonLogger("TaskService", "task-service.log"),
     llmScheduler,
     github,
-    createDefaultWinstonLogger("TaskService", "task-service.log")
+    terminalService,
+    prService
   );
   const issueService = new IssueService(github, taskService);
 
@@ -35,6 +47,7 @@ export function newServiceMesh(projectsRootDir: string, logsDir: string) {
     llmScheduler,
     github,
     issueService,
+    prService,
   };
 }
 

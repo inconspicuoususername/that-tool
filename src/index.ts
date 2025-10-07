@@ -1,7 +1,6 @@
 import "@/lib/env";
 import { startTypescriptServer } from "./lib/lint/ts";
 import { setupExpress } from "./lib/express";
-import { runBrowserAgent } from "./llm/browser";
 
 const tsServer = startTypescriptServer();
 const expressServer = setupExpress();
