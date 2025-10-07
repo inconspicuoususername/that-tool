@@ -142,3 +142,5 @@ projects
 .logs
 .doc
 crypt
+
+taskfile.yaml
