@@ -7,13 +7,14 @@ import express from "express";
 import cors from "cors";
 import session from "express-session";
 import { authRouter } from "./auth";
+import { errorHandler } from "./error-handler";
 
 export const app = express();
 
 export async function setupExpress() {
   const middlewareLogger = createDefaultWinstonLogger(
     "express.js",
-    "express.log"
+    "express.log",
   );
 
   app.use(cors());
@@ -24,7 +25,7 @@ export async function setupExpress() {
     middlewareLogger.info(
       `<--- RES ${req.method} ${req.url} - ${res.statusCode} - ${
         Date.now() - time
-      }ms`
+      }ms`,
     );
   });
   const middleware = createNodeMiddleware(
@@ -32,11 +33,14 @@ export async function setupExpress() {
     {
       path: "/github/webhook",
       timeout: 300000,
-    }
+    },
   );
   app.use(async (req, res, next) => {
     await middleware(req, res, next);
   });
+
+  app.use(errorHandler);
+  // app.use(express.urlencoded({ extended: true }));
 
   app.set("trust proxy", 1);
 
@@ -51,14 +55,14 @@ export async function setupExpress() {
         httpOnly: true,
         sameSite: "lax",
         // secure: env.serverUrl.startsWith("https://"),
-        secure: true
+        secure: true,
       },
     }),
-  );;
+  );
 
   app.use("/task", taskRouter);
   app.use("/auth", authRouter);
-  
+
   return new Promise((resolve) => {
     app.listen(5001, () => {
       middlewareLogger.info("Server is running on port 5001");

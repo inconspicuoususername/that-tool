@@ -54,3 +54,13 @@ export function getLinuxDistro(): LinuxDistro | undefined {
 export function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export class AppError extends Error {
+  status: number;
+  nonce: string;
+  constructor(status: number, message: string, nonce: string) {
+    super(message);
+    this.status = status;
+    this.nonce = nonce;
+  }
+}
