@@ -1,10 +1,12 @@
 import { serviceMesh } from "@/services/mesh";
 import { taskRouter } from "@/routes/task";
 import { createNodeMiddleware } from "@octokit/webhooks";
-import { env } from "./env";
-import { createDefaultWinstonLogger } from "./basic-logger";
+import { env } from "../lib/env";
+import { createDefaultWinstonLogger } from "../lib/basic-logger";
 import express from "express";
 import cors from "cors";
+import session from "express-session";
+import { authRouter } from "./auth";
 
 export const app = express();
 
@@ -36,18 +38,27 @@ export async function setupExpress() {
     await middleware(req, res, next);
   });
 
-  app.use("/task", express.json());
+  app.set("trust proxy", 1);
 
-  app.use("/task", (req, res, next) => {
-    const simpleAuthHeader = req.headers["authorization"];
-    if (simpleAuthHeader !== "Bearer " + env.simpleAuthToken) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    next();
-  });
+  app.use(express.json());
+
+  app.use(
+    session({
+      secret: env.auth.sessionSecret,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        sameSite: "lax",
+        // secure: env.serverUrl.startsWith("https://"),
+        secure: true
+      },
+    }),
+  );;
 
   app.use("/task", taskRouter);
+  app.use("/auth", authRouter);
+  
   return new Promise((resolve) => {
     app.listen(5001, () => {
       middlewareLogger.info("Server is running on port 5001");

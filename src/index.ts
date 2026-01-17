@@ -1,6 +1,6 @@
 import "@/lib/env";
 import { startTypescriptServer } from "./lib/lint/ts";
-import { setupExpress } from "./lib/express";
+import { setupExpress } from "./routes";
 
 const tsServer = startTypescriptServer();
 const expressServer = setupExpress();

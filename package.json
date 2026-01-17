@@ -14,7 +14,6 @@
   "license": "ISC",
   "packageManager": "pnpm@10.6.1",
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.0",
     "@octokit/app": "^16.0.1",
     "@octokit/core": "^7.0.2",
     "@octokit/rest": "^21.1.1",
@@ -29,10 +28,14 @@
     "drizzle-zod": "^0.5.1",
     "eventsource": "^4.0.0",
     "express": "^5.1.0",
+    "express-session": "^1.18.2",
     "isolated-vm": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
     "lodash": "^4.17.21",
     "node-html-parser": "^7.0.1",
     "openai": "^4.100.0",
+    "openid-client": "^6.8.1",
+    "pg": "^8.17.1",
     "puppeteer": "^24.11.1",
     "simple-git": "^3.27.0",
     "tsx": "^4.19.4",
@@ -43,8 +46,11 @@
   "devDependencies": {
     "@types/cors": "^2.8.18",
     "@types/express": "^5.0.2",
+    "@types/express-session": "^1.18.2",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/lodash": "^4.17.16",
     "@types/node": "^22.15.16",
+    "@types/pg": "^8.16.0",
     "typescript": "^5"
   },
   "pnpm": {
