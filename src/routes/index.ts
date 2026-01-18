@@ -1,15 +1,12 @@
 import { serviceMesh } from "@/services/mesh";
 import { taskRouter } from "@/routes/task";
 import { createNodeMiddleware } from "@octokit/webhooks";
-import { env } from "../lib/env";
 import { createDefaultWinstonLogger } from "../lib/basic-logger";
 import express from "express";
 import cors from "cors";
-import session from "express-session";
+// import session from "express-session";
 import { authRouter } from "./auth";
 import { errorHandler } from "./error-handler";
-import path from "path";
-import { fileURLToPath } from "url";
 import { requireJWT } from "./middleware";
 import { manualRouter } from "./manual";
 
@@ -20,13 +17,6 @@ export async function setupExpress() {
     "express.js",
     "express.log",
   );
-
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const viewsDir = path.resolve(__dirname, "../views");
-
-  app.set("view engine", "ejs");
-  app.set("views", viewsDir);
 
   app.use(cors());
   app.use((req, res, next) => {
@@ -56,18 +46,18 @@ export async function setupExpress() {
 
   app.use(express.json());
 
-  app.use(
-    session({
-      secret: env.auth.sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: env.serverUrl.startsWith("https://"),
-      },
-    }),
-  );
+  // app.use(
+  //   session({
+  //     secret: env.auth.sessionSecret,
+  //     resave: false,
+  //     saveUninitialized: false,
+  //     cookie: {
+  //       httpOnly: true,
+  //       sameSite: "lax",
+  //       secure: env.serverUrl.startsWith("https://"),
+  //     },
+  //   }),
+  // );
 
   app.get(["/", "/monitor"], requireJWT, async (_req, res) => {
     res.render("monitor", {});
