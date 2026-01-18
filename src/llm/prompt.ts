@@ -13,7 +13,10 @@ import {
   LLMResult,
   SubtaskInstance,
 } from "@/types/llm-scheduler";
-import { createDefaultWinstonLogger } from "@/lib/basic-logger";
+import {
+  createDefaultWinstonLogger,
+  createDefaultWinstonLoggerExact,
+} from "@/lib/basic-logger";
 import { Logger } from "winston";
 import { SubTaskRecord } from "@/types/db";
 import { openAIResponsesCall } from "./openai-api-call";
@@ -141,7 +144,7 @@ export async function executeTask(
 
   // Function to log messages
   // const logger = createLogger("Agent");
-  const logger = createDefaultWinstonLogger("Agent", task.setup.logFile);
+  const logger = createDefaultWinstonLoggerExact("Agent", task.setup.logFile);
 
   // Initialize conversation history
   const prompt = task.setup.currentPrompt;

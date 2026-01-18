@@ -14,6 +14,7 @@ import {
 } from "@/types/llm-scheduler";
 import winston from "winston";
 import fs from "fs/promises";
+import fssync from "fs";
 import archiver from "archiver";
 import path from "path";
 import { shouldExcludeDirectory } from "@/llm/services/directory-tree";
@@ -192,6 +193,39 @@ export class LLMScheduler {
     }
 
     return await fs.readFile(subtask.setup.logFile, "utf-8");
+  }
+
+  public getSubtaskLogFilePathSync(subtaskId: number) {
+    const st = this.runningTasks.find((t) => t.subtask.id === subtaskId);
+    return st?.setup.logFile ?? null;
+  }
+
+  public readSubtaskLogChunkSync(subtaskId: number, offset: number) {
+    const logFilePath = this.getSubtaskLogFilePathSync(subtaskId);
+    if (!logFilePath) {
+      throw new Error("Subtask is not running");
+    }
+
+    const stat = fssync.statSync(logFilePath);
+    const fileSize = stat.size;
+
+    if (offset >= fileSize) {
+      return { chunk: "", nextOffset: fileSize, eof: true };
+    }
+
+    const length = fileSize - offset;
+    const fd = fssync.openSync(logFilePath, "r");
+    try {
+      const buffer = Buffer.alloc(length);
+      const bytes = fssync.readSync(fd, buffer, 0, length, offset);
+      return {
+        chunk: buffer.subarray(0, bytes).toString("utf-8"),
+        nextOffset: offset + bytes,
+        eof: offset + bytes >= fileSize,
+      };
+    } finally {
+      fssync.closeSync(fd);
+    }
   }
 
   public async getSubtaskWorkDir(subtaskId: number) {

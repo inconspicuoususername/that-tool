@@ -34,23 +34,54 @@ const streamTaskLogs: RequestHandler = async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders?.();
 
-  const subtaskId = query.data.subtaskId;
+  const explicitSubtaskId = query.data.subtaskId;
+  let lastSubtaskId: number | null = null;
+  let offset = 0;
+
+  const resolveSubtaskId = async () => {
+    if (explicitSubtaskId) return explicitSubtaskId;
+    const task = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskID.data),
+    });
+    return task?.currentSubTaskId ?? null;
+  };
 
   const sendLogs = async () => {
-    const result = await serviceMesh.taskService.tailTaskLogs(
-      taskID.data,
+    const subtaskId = await resolveSubtaskId();
+    if (!subtaskId) {
+      res.write(
+        `data: ${JSON.stringify({ success: false, error: "No active subtask" })}\n\n`,
+      );
+      return;
+    }
+
+    if (lastSubtaskId !== subtaskId) {
+      lastSubtaskId = subtaskId;
+      offset = 0;
+      res.write(
+        `data: ${JSON.stringify({ success: true, reset: true, subtaskId })}\n\n`,
+      );
+    }
+
+    const { chunk, nextOffset } = serviceMesh.taskService.getLogChunkSync(
       subtaskId,
+      offset,
     );
-    res.write(`data: ${JSON.stringify(result)}\n\n`);
+    offset = nextOffset;
+
+    res.write(
+      `data: ${JSON.stringify({ success: true, subtaskId, chunk, offset })}\n\n`,
+    );
   };
 
   const interval = setInterval(() => {
-    sendLogs().catch(() => {
+    sendLogs().catch((e) => {
       res.write(
-        `data: ${JSON.stringify({ success: false, error: "Log stream unavailable" })}\n\n`,
+        `data: ${JSON.stringify({ success: false, error: e instanceof Error ? e.message : "Log stream unavailable" })}\n\n`,
       );
     });
-  }, 1000);
+  }, 500);
+
 
   req.on("close", () => {
     clearInterval(interval);
@@ -133,27 +164,6 @@ const getTaskStatus: RequestHandler = async (req, res) => {
   res.json(result);
 };
 
-const getTaskLogs: RequestHandler = async (req, res) => {
-  const taskID = getTaskSchema.safeParse(req.params.id);
-  const query = tailLogsQuerySchema.safeParse(req.query);
-
-  if (!taskID.success) {
-    res.status(400).json({ error: taskID.error.message });
-    return;
-  }
-
-  if (!query.success) {
-    res.status(400).json({ error: query.error.message });
-    return;
-  }
-
-  const result = await serviceMesh.taskService.getSubTaskLogs(
-    taskID.data,
-    query.data.subtaskId,
-  );
-  res.json(result);
-};
-
 const getTask: RequestHandler = async (req, res) => {
   const taskID = getTaskSchema.safeParse(req.params.id);
 
@@ -189,27 +199,6 @@ const getTaskFiles: RequestHandler = async (req, res) => {
   result.files.stream.pipe(res);
 
   result.files.stream.finalize();
-};
-
-const tailTaskLogs: RequestHandler = async (req, res) => {
-  const taskID = getTaskSchema.safeParse(req.params.id);
-  const query = tailLogsQuerySchema.safeParse(req.query);
-
-  if (!taskID.success) {
-    res.status(400).json({ error: taskID.error.message });
-    return;
-  }
-
-  if (!query.success) {
-    res.status(400).json({ error: query.error.message });
-    return;
-  }
-
-  const result = await serviceMesh.taskService.tailTaskLogs(
-    taskID.data,
-    query.data.subtaskId,
-  );
-  res.json(result);
 };
 
 const streamTaskEvents: RequestHandler = async (req, res) => {
@@ -343,6 +332,21 @@ const deleteTaskHandler: RequestHandler = async (req, res) => {
   res.json(result);
 };
 
+const restartTaskSchema = z.object({
+  taskId: z.coerce.number().int().positive(),
+});
+
+const restartTaskHandler: RequestHandler = async (req, res) => {
+  const body = restartTaskSchema.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ error: body.error.message });
+    return;
+  }
+
+  const result = await serviceMesh.taskService.restartTask(body.data.taskId);
+  res.json(result);
+};
+
 const beginEpic: RequestHandler = async (req, res) => {
   const epicID = beginEpicRequestSchema.safeParse(req.body);
 
@@ -392,12 +396,12 @@ taskRouter.get("/projects/:projectId/subtasks", listProjectSubtasks);
 taskRouter.get("/events/stream", streamTaskEvents);
 taskRouter.get("/:id/status", getTaskStatus);
 taskRouter.get("/:id/logs/stream", streamTaskLogs);
-taskRouter.get("/:id/logs/tail", tailTaskLogs);
-taskRouter.get("/:id/logs", getTaskLogs);
+// taskRouter.get("/:id/logs/tail", tailTaskLogs);
 taskRouter.get("/:id/files", getTaskFiles);
 taskRouter.get("/:id", getTask);
 taskRouter.post("/stop", stopTaskHandler);
 taskRouter.post("/delete", deleteTaskHandler);
+taskRouter.post("/restart", restartTaskHandler);
 taskRouter.post("/begin-epic", beginEpic);
 taskRouter.post("/update-project", updateProject);
 

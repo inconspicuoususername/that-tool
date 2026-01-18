@@ -732,6 +732,10 @@ export class TaskService {
         projectSpecification: project.projectSpecification,
         defaultModel: project.defaultModel,
         enabled: project.enabled,
+        shouldHaveMemories: project.shouldHaveMemories,
+        shouldOverwriteMemories: project.shouldOverwriteMemories,
+        maxLLMRetries: project.maxLLMRetries,
+        maxChainedPRs: project.maxChainedPRs,
       })
       .where(
         and(eq(projects.owner, project.owner), eq(projects.repo, project.repo)),
@@ -940,6 +944,10 @@ ${startTask.prompt}`,
     };
   }
 
+  public getLogChunkSync(subtaskId: number, offset: number) {
+    return this.llmScheduler.readSubtaskLogChunkSync(subtaskId, offset);
+  }
+
   public async stopTask(taskId: number) {
     const taskRecord = await db.query.tasks.findFirst({
       where: eq(tasks.id, taskId),
@@ -998,6 +1006,51 @@ ${startTask.prompt}`,
     return { success: true };
   }
 
+  public async restartTask(taskId: number) {
+    const taskRecord = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!taskRecord) {
+      throw new AppError(400, "Task not found", "20013");
+    }
+
+    if (taskRecord.status === "running") {
+      throw new AppError(400, "Task is running; stop it first", "20014");
+    }
+
+    if (!taskRecord.currentSubTaskId) {
+      throw new AppError(400, "Task has no current subtask", "20015");
+    }
+
+    const currentSubTask = await db.query.subTasks.findFirst({
+      where: eq(subTasks.id, taskRecord.currentSubTaskId),
+    });
+
+    if (!currentSubTask) {
+      throw new AppError(400, "Subtask not found", "20016");
+    }
+
+    // "Restart" means:
+    // - clear any prior model outputs for the current subtask
+    // - mark task+subtask pending so the run loop can pick it up
+    //
+    // We allow restarting from statuses that are effectively terminal for users
+    // (complete/error/closed/killed/awaiting_approval/awaiting_help).
+    const subtask = await this.resetSubtask(currentSubTask);
+    await this.scheduleTask(taskRecord.id, subtask.id);
+
+    return {
+      success: true,
+      task: {
+        ...taskRecord,
+        status: "pending" as const,
+        currentSubTaskId: subtask.id,
+      },
+      subtask,
+    };
+  }
+
   private async _setupSubTask(
     taskRecord: TaskRecord,
     githubInfoRecord?: TaskGithubInfoRecord,
@@ -1019,6 +1072,11 @@ ${startTask.prompt}`,
       "tasks",
       `task-${timestamp}-${projectRecord.projectName}.log`,
     );
+
+    const dir = path.dirname(logFile);
+
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(logFile, "");
 
     this.logger.info("Log file created:", logFile);
 
@@ -1075,10 +1133,6 @@ ${startTask.prompt}`,
       status: subtask.status,
       error: subtask.error,
     };
-  }
-
-  public async getSubTaskLogs(taskId: number, subtaskId?: number) {
-    return this.tailTaskLogs(taskId, subtaskId);
   }
 
   public async getTask(id: number) {
@@ -1177,44 +1231,6 @@ ${startTask.prompt}`,
       success: true,
       subtasks: rows,
     };
-  }
-
-  public async tailTaskLogs(taskId: number, subtaskId?: number) {
-    const task = await db.query.tasks.findFirst({
-      where: eq(tasks.id, taskId),
-    });
-
-    if (!task) {
-      return {
-        success: false,
-        error: "Task not found",
-      };
-    }
-
-    const activeSubtaskId = subtaskId ?? task.currentSubTaskId;
-
-    if (!activeSubtaskId) {
-      return {
-        success: false,
-        error: "No active subtask",
-      };
-    }
-
-    try {
-      const logs = await this.llmScheduler.getSubtaskLogs(activeSubtaskId);
-      return {
-        success: true,
-        logs,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error:
-          error instanceof Error
-            ? `${error.message}. Logs are only available for running subtasks.`
-            : "Failed to read logs",
-      };
-    }
   }
 
   public async onSubTaskComplete(

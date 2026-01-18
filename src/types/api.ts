@@ -81,6 +81,10 @@ export const updateProjectRequestSchema = z.object({
   defaultModel: z.string().optional(),
   projectSpecification: z.string().optional(),
   enabled: z.boolean().optional(),
+  shouldHaveMemories: z.boolean().optional(),
+  shouldOverwriteMemories: z.boolean().optional(),
+  maxLLMRetries: z.coerce.number().int().min(0).max(20).optional(),
+  maxChainedPRs: z.coerce.number().int().min(0).max(20).optional(),
 });
 
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;
