@@ -32,6 +32,8 @@ export const projects = pgTable("projects", {
   repo: text("repo").notNull(),
   owner: text("owner").notNull(),
 
+  enabled: boolean("enabled").notNull().default(false),
+
   projectSpecification: text("project_specification"),
   defaultBaseBranch: text("default_base_branch").notNull().default("main"),
   defaultModel: text("default_model").notNull(),

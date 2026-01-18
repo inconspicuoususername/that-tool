@@ -126,6 +126,7 @@ export class TaskService {
               .where(
                 and(
                   eq(tasks.projectId, projects.id),
+                  eq(projects.enabled, true),
                   or(eq(tasks.status, "running")),
                 ),
               ),

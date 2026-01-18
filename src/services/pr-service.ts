@@ -119,8 +119,9 @@ export class PullRequestService {
           // Only get tasks that have a PR number
           isNotNull(sql`${taskGithubInfo.pullRequest}->>'number'`),
           // Only get tasks in relevant statuses
-          or(eq(tasks.status, "awaiting_approval"))
-        )
+          or(eq(tasks.status, "awaiting_approval")),
+          eq(projects.enabled, true),
+        ),
       );
   }
 

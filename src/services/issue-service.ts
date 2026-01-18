@@ -151,12 +151,13 @@ export class IssueService {
             eq(projects.owner, o.repository.owner.login),
             eq(projects.repo, o.repository.name),
             and(
+              eq(projects.enabled, true),
               not(eq(tasks.status, "closed")),
               // not(eq(tasks.status, "complete")),
               not(eq(tasks.status, "error")),
-              not(eq(tasks.status, "killed"))
-            )
-          )
+              not(eq(tasks.status, "killed")),
+            ),
+          ),
         );
 
       // if (
