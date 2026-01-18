@@ -1,3 +1,5 @@
+CREATE SCHEMA IF NOT EXISTS "ttl_agent";
+
 CREATE TABLE "ttl_agent"."oai_responses" (
 	"id" text PRIMARY KEY NOT NULL,
 	"sub_task_id" integer,

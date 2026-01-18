@@ -89,8 +89,13 @@
       logsEl.textContent = "Select a running subtask to view logs.";
     }
 
+    function authHeaders() {
+      const token = localStorage.getItem("jwt");
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
     async function fetchJSON(url) {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: authHeaders() });
       if (!res.ok) throw new Error(`Request failed: ${res.status}`);
       return res.json();
     }
@@ -169,6 +174,10 @@
       clearLogs();
       const url = new URL(`/task/${task.id}/logs/stream`, window.location.origin);
       url.searchParams.set("subtaskId", subtaskId);
+      const token = localStorage.getItem("jwt");
+      if (token) {
+        url.searchParams.set("token", token);
+      }
       eventSource = new EventSource(url);
       logsEl.textContent = "";
       eventSource.onmessage = (ev) => {

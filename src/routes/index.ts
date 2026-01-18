@@ -10,6 +10,7 @@ import { authRouter } from "./auth";
 import { errorHandler } from "./error-handler";
 import path from "path";
 import { fileURLToPath } from "url";
+import { requireJWT } from "./middleware";
 
 export const app = express();
 
@@ -69,11 +70,14 @@ export async function setupExpress() {
     }),
   );
 
-  app.get(["/", "/monitor"], async (_req, res) => {
+  app.get(["/", "/monitor"], requireJWT, async (_req, res) => {
     res.render("monitor", {});
   });
+  app.get(["/login"], async (_req, res) => {
+    res.render("login", {});
+  });
 
-  app.use("/task", taskRouter);
+  app.use("/task", requireJWT, taskRouter);
   app.use("/auth", authRouter);
 
   return new Promise((resolve) => {

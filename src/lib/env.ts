@@ -20,6 +20,7 @@ function getOrDefaultBoolean(key: string, defaultValue?: boolean) {
 }
 
 export const env = {
+  serverUrl: getOrDefault("SERVER_URL"),
   openai: {
     apiKey: getOrDefault("OPENAI_API_KEY"),
     defaultModel: getOrDefault("GITHUB_DEFAULT_OPENAI_MODEL", "o4-mini"),

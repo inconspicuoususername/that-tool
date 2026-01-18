@@ -132,6 +132,21 @@ export class IssueService {
         repo: o.repository.name,
       });
 
+      const project = await db.query.projects.findFirst({
+        where: and(
+          eq(projects.owner, o.repository.owner.login),
+          eq(projects.repo, o.repository.name),
+          eq(projects.enabled, true),
+        ),
+      });
+
+      if (!project) {
+        this.logger.info(
+          `Project ${o.repository.owner.login}/${o.repository.name} not found or disabled. Skipping.`,
+        );
+        return;
+      }
+
       const issues = ret.data.filter((i) => !i.pull_request);
 
       if (issues.length === 0) {
@@ -151,7 +166,6 @@ export class IssueService {
             eq(projects.owner, o.repository.owner.login),
             eq(projects.repo, o.repository.name),
             and(
-              eq(projects.enabled, true),
               not(eq(tasks.status, "closed")),
               // not(eq(tasks.status, "complete")),
               not(eq(tasks.status, "error")),
