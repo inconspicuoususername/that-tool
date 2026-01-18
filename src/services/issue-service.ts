@@ -124,7 +124,7 @@ export class IssueService {
     this.logger.info("Starting issue crawler");
     await this.github.githubApp.eachRepository(async (o) => {
       this.logger.info(
-        `Enumerating issues for ${o.repository.owner.login}/${o.repository.name}.`
+        `Enumerating issues for ${o.repository.owner.login}/${o.repository.name}.`,
       );
       const octokit = o.octokit as Octokit;
       const ret = await octokit.rest.issues.listForRepo({
@@ -136,14 +136,38 @@ export class IssueService {
         where: and(
           eq(projects.owner, o.repository.owner.login),
           eq(projects.repo, o.repository.name),
-          eq(projects.enabled, true),
         ),
       });
 
-      if (!project) {
+      let projectDb = await db.query.projects.findFirst({
+        where: and(
+          eq(projects.owner, o.repository.owner.login),
+          eq(projects.repo, o.repository.name),
+        ),
+      });
+
+      if (!projectDb) {
         this.logger.info(
-          `Project ${o.repository.owner.login}/${o.repository.name} not found or disabled. Skipping.`,
+          `Project ${o.repository.owner.login}/${o.repository.name} not found. Creating.`,
         );
+        projectDb = await this.taskService.createProject({
+          projectName: `${o.repository.owner.login}/${o.repository.name}`,
+          owner: o.repository.owner.login,
+          repo: o.repository.name,
+        });
+        if (!projectDb) {
+          this.logger.error(
+            `Failed to create project ${o.repository.owner.login}/${o.repository.name}. Skipping.`,
+          );
+          return;
+        }
+      }
+
+      if (!projectDb.enabled) {
+        this.logger.info(
+          `Project ${o.repository.owner.login}/${o.repository.name} is disabled. Skipping.`,
+        );
+
         return;
       }
 
@@ -151,7 +175,7 @@ export class IssueService {
 
       if (issues.length === 0) {
         this.logger.info(
-          `No issues found for ${o.repository.owner.login}/${o.repository.name}. Skipping.`
+          `No issues found for ${o.repository.owner.login}/${o.repository.name}. Skipping.`,
         );
         return;
       }
@@ -191,8 +215,8 @@ export class IssueService {
             !ignoredOrAlreadyActive.some(
               (t) =>
                 t.task_github_info.linkedIssueNumber === i.number &&
-                t.tasks.status === "awaiting_approval"
-            )
+                t.tasks.status === "awaiting_approval",
+            ),
         )
         .filter((i) => {
           const labels = i.labels
@@ -211,42 +235,19 @@ export class IssueService {
         ...issues.filter((x) => {
           return (
             ignoredOrAlreadyActive.find(
-              (t) => t.task_github_info.linkedIssueNumber === x.number
+              (t) => t.task_github_info.linkedIssueNumber === x.number,
             )?.tasks.status === "awaiting_help" &&
             !relevantIssues.some((y) => y.number === x.number)
           );
-        })
+        }),
       );
 
       this.logger.info(
-        `Found ${issues.length} issues for ${o.repository.owner.login}/${o.repository.name}.`
+        `Found ${issues.length} issues for ${o.repository.owner.login}/${o.repository.name}.`,
       );
       this.logger.info(
-        `Found ${relevantIssues.length} relevant issues for ${o.repository.owner.login}/${o.repository.name}.`
+        `Found ${relevantIssues.length} relevant issues for ${o.repository.owner.login}/${o.repository.name}.`,
       );
-
-      let projectDb = await db.query.projects.findFirst({
-        where: and(
-          eq(projects.owner, o.repository.owner.login),
-          eq(projects.repo, o.repository.name)
-        ),
-      });
-      if (!projectDb) {
-        this.logger.info(
-          `Project ${o.repository.owner.login}/${o.repository.name} not found. Creating.`
-        );
-        projectDb = await this.taskService.createProject({
-          projectName: `${o.repository.owner.login}/${o.repository.name}`,
-          owner: o.repository.owner.login,
-          repo: o.repository.name,
-        });
-        if (!projectDb) {
-          this.logger.error(
-            `Failed to create project ${o.repository.owner.login}/${o.repository.name}. Skipping.`
-          );
-          return;
-        }
-      }
 
       // const issue = relevantIssues.find((i) => i.body && i.body.length > 0);
       for (const issue of relevantIssues) {
@@ -261,21 +262,21 @@ export class IssueService {
             newTask.task.id,
             async (task, subtask, setup, project, githubInfo) => {
               this.logger.info(
-                `Subtask ${subtask.id} complete for ${project.owner}/${project.repo}. Crawling issues.`
+                `Subtask ${subtask.id} complete for ${project.owner}/${project.repo}. Crawling issues.`,
               );
               this.taskService.removeOnSubtaskCompleteCallback(task.id);
               if (!githubInfo) {
                 this.logger.error(
-                  `Failed to get github info for ${project.owner}/${project.repo}. Skipping.`
+                  `Failed to get github info for ${project.owner}/${project.repo}. Skipping.`,
                 );
                 return;
               }
               this.crawlIssues();
-            }
+            },
           );
         } catch (e) {
           this.logger.error(
-            `Failed to process issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Skipping.`
+            `Failed to process issue ${issue.number} for ${o.repository.owner.login}/${o.repository.name}. Skipping.`,
           );
           continue;
         }
@@ -586,7 +587,7 @@ If you have questions, use the 'ask_for_help' tool to ask questions.
             (t) => t.tasks.status === "running" || t.tasks.status === "pending"
           );
           if (task) {
-            await this.taskService.killAndRemoveTask(task.tasks);
+            await this.taskService.stopTask(task.tasks.id);
           }
         }
       } else if (event.name === "issue_comment") {

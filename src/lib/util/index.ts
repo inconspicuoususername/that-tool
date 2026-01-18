@@ -64,3 +64,16 @@ export class AppError extends Error {
     this.nonce = nonce;
   }
 }
+
+export function abortablePromise<T>(
+  promise: Promise<T>,
+  abortSignal: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    abortSignal.addEventListener("abort", () => {
+      reject(new Error("Operation aborted"));
+    });
+
+    promise.then(resolve).catch(reject);
+  });
+}

@@ -28,7 +28,6 @@ export const githubStartTaskSchema = baseStartTaskSchema.extend({
 });
 
 export const startTaskRequestSchema = z.discriminatedUnion("type", [
-  localStartTaskSchema,
   githubStartTaskSchema,
 ]);
 
@@ -81,6 +80,7 @@ export const updateProjectRequestSchema = z.object({
   defaultBaseBranch: z.string().optional(),
   defaultModel: z.string().optional(),
   projectSpecification: z.string().optional(),
+  enabled: z.boolean().optional(),
 });
 
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;

@@ -123,7 +123,8 @@ export async function populatePreviousResponse({
 }
 
 export async function executeTask(
-  task: SubtaskInstance
+  task: SubtaskInstance,
+  abortSignal: AbortSignal,
 ): Promise<LLMResult | LLMHelpRequest> {
   // // Initialize tools
   // const terminalService = new TerminalService(taskRecord.workDir);
@@ -197,7 +198,7 @@ export async function executeTask(
     const commit = toolCalls.find((x) => x.name === "commit");
     if (commit) {
       logger.info(
-        "Tool call 'commit' found. Model has completed the task successfully."
+        "Tool call 'commit' found. Model has completed the task successfully.",
       );
       const commitMessage = JSON.parse(commit.arguments).message;
       const commitDescription = JSON.parse(commit.arguments).description;
@@ -219,7 +220,7 @@ export async function executeTask(
           throw new Error(`Invalid tool name: ${toolCall.name}`);
         }
         logger.info(
-          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
+          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`,
         );
         if (env.shouldAskForTool) {
           //ask for approval from stdin
@@ -263,11 +264,16 @@ export async function executeTask(
       toolsDefinition,
       previousResponseId,
       logger,
+      abortSignal,
     });
+
+    if (abortSignal.aborted) {
+      throw new Error("Task execution aborted");
+    }
 
     if (!apiResponse) {
       throw new Error(
-        `Failed to get response from OpenAI API: ${apiError?.message}`
+        `Failed to get response from OpenAI API: ${apiError?.message}`,
       );
     }
 

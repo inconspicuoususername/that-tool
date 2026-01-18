@@ -40,20 +40,21 @@ export const authRouter = Router();
 authRouter.get("/github/login", async (req: Request, res: Response) => {
   // GitHub recommends (strongly) state + PKCE for the code flow.
   const redirectUri = getFullURL(req, "/auth/callback");
-  const { url, state } =
-    serviceMesh.github.githubApp.oauth.getWebFlowAuthorizationUrl({
-      allowSignup: false,
-      //   scopes: ["read:user", "user:email"],
-      redirectUrl: redirectUri,
-    });
+  const next = typeof req.query.next === "string" ? req.query.next : undefined;
+  const state =
+    next && next.trim().length > 0
+      ? `monitoring:${Buffer.from(next, "utf8").toString("base64url")}`
+      : undefined;
 
-  const sess = req.session;
-  sess.oauth ??= {};
-  sess.oauth[state] = {
-    createdAt: Date.now(),
-  };
+  const result = serviceMesh.github.githubApp.oauth.getWebFlowAuthorizationUrl({
+    allowSignup: false,
+    // We need email verification; /user/emails requires user:email.
+    // scopes: ["read:user", "user:email"],
+    redirectUrl: redirectUri,
+    ...(state ? { state } : {}),
+  });
 
-  res.redirect(302, url);
+  res.redirect(302, result.url);
 });
 
 // GET /api/auth/callback?code=...&state=...
@@ -63,17 +64,16 @@ authRouter.get("/callback", async (req: Request, res: Response) => {
   if (!code || !state)
     throw new AppError(400, "Missing code or state", "10002");
 
-  const sess = req.session;
-  const entry = sess.oauth?.[state];
-  if (!entry)
-    throw new AppError(
-      400,
-      "OAuth session not found (expired or invalid)",
-      "10003",
-    );
+  // const entry = sess.oauth?.[state];
+  // if (!entry)
+  //   throw new AppError(
+  //     400,
+  //     "OAuth session not found (expired or invalid)",
+  //     "10003",
+  //   );
 
-  // One-time use
-  delete sess.oauth?.[state];
+  // // One-time use
+  // delete sess.oauth?.[state];
 
   const redirectUrl = getFullURL(req, "/auth/callback");
   const tokenInfo = await serviceMesh.github.githubApp.oauth.createToken({
@@ -86,7 +86,7 @@ authRouter.get("/callback", async (req: Request, res: Response) => {
     throw new AppError(401, "No access_token received", "10004");
 
   // One-time use
-  delete sess.oauth?.[state];
+  // delete sess.oauth?.[state];
 
   const accessToken = tokenInfo.authentication.token;
   if (!accessToken)
@@ -139,5 +139,16 @@ authRouter.get("/callback", async (req: Request, res: Response) => {
     env.auth.jwtSecret,
   );
 
-  res.json({ token, user });
+  const stateParts = state.split(":");
+  let redirectTo = "/";
+  if (stateParts.length === 2 && stateParts[0] === "monitoring") {
+    const decoded = Buffer.from(stateParts[1], "base64url").toString("utf8");
+    redirectTo = decoded;
+  }
+
+  // Redirect with token in query param
+  const url = new URL(redirectTo, getFullURL(req, "/"));
+  url.searchParams.set("token", token);
+
+  res.redirect(302, url.toString());
 });

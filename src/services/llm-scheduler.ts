@@ -53,7 +53,8 @@ export class LLMScheduler {
     const task = this.runningTasks.find((t) => t.subtask.taskId === taskId);
     if (task) {
       task.subtask.status = "killed";
-      task.promise = Promise.resolve();
+      task.abortController.abort();
+      task.promise.catch(() => {});
       this.runningTasks = this.runningTasks.filter((t) => t !== task);
       this.completeCallbacks.delete(task.subtask.id);
       await db
@@ -152,9 +153,10 @@ export class LLMScheduler {
       },
       subtask: updatedSubtask,
       promise: Promise.resolve(),
+      abortController: new AbortController(),
     } satisfies SubtaskInstance;
 
-    subtask.promise = executeTask(subtask)
+    subtask.promise = executeTask(subtask, subtask.abortController.signal)
       .then((res) => {
         if (res.type === "tool_result") {
           this._onTaskComplete(subtask, null, res);
@@ -176,8 +178,19 @@ export class LLMScheduler {
   public async getSubtaskLogs(subtaskId: number) {
     const subtask = this.runningTasks.find((t) => t.subtask.id === subtaskId);
     if (!subtask) {
-      throw new Error("Subtask not found");
+      // Subtasks that already finished are removed from `runningTasks`, but their
+      // log files still exist on disk.
+      const subTaskRecord = await db.query.subTasks.findFirst({
+        where: eq(subTasks.id, subtaskId),
+      });
+
+      if (!subTaskRecord) {
+        throw new Error("Subtask not found");
+      }
+
+      throw new Error("Subtask is not running");
     }
+
     return await fs.readFile(subtask.setup.logFile, "utf-8");
   }
 

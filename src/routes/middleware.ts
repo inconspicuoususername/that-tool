@@ -13,7 +13,7 @@ export const requireJWT = (
       : req.query.token || req.cookies?.token;
 
     if (!token || typeof token !== "string") {
-      res.status(401).redirect("/login");
+      res.status(401);
       return;
     }
 
@@ -22,6 +22,7 @@ export const requireJWT = (
       res.locals.jwt = token;
       next();
     } catch (error) {
-      res.status(401).redirect("/login");
+      res.status(401);
+      return;
     }
   };

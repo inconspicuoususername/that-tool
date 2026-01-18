@@ -11,6 +11,7 @@ import {
   taskDependencies,
 } from "@/lib/db/schema";
 import { StartTaskRequest, UpdateProjectRequest } from "@/types/api";
+import type { CreateManualSubtaskRequest } from "@/types/manual";
 import {
   LLMResult,
   LLMHelpRequest,
@@ -328,7 +329,7 @@ export class TaskService {
       //The task never started, but we lost starting info. kill the task. if its a github task,
       //the issue crawler will pick up the issue and create a new task anyways.
       this.logger.warn("Task has no current subtask. Killing task.", task.id);
-      await this.killAndRemoveTask(task);
+      await this.stopTask(task.id);
       return;
     }
 
@@ -339,7 +340,7 @@ export class TaskService {
       this.logger.warn(
         "Task is running, but subtask is in complete state. This usually means that the worker process was killed as approval was given from a PR. It is recoverable, but not through the current webhook system, as PRs would have to be crawled and checked for new responses.",
       );
-      await this.killAndRemoveTask(task);
+      await this.stopTask(task.id);
       return;
     }
 
@@ -730,6 +731,7 @@ export class TaskService {
         defaultBaseBranch: project.defaultBaseBranch,
         projectSpecification: project.projectSpecification,
         defaultModel: project.defaultModel,
+        enabled: project.enabled,
       })
       .where(
         and(eq(projects.owner, project.owner), eq(projects.repo, project.repo)),
@@ -823,6 +825,43 @@ export class TaskService {
       .returning();
   }
 
+  public async createManualSubtask(
+    request: CreateManualSubtaskRequest,
+  ): Promise<TaskServiceResult> {
+    if (request.mode == "new_task") {
+      const project = await db.query.projects.findFirst({
+        where: eq(projects.id, request.projectId),
+      });
+
+      if (!project) {
+        throw new AppError(404, "Project not found", "21001");
+      }
+
+      const startBranch = project.defaultBaseBranch;
+      const targetBranch = "feat/manual-" + Math.floor(Math.random() * 10000);
+      const result = await this.addTask({
+        type: "github",
+        owner: project.owner,
+        repo: project.repo,
+        prompt: request.prompt,
+        taskDependencies: [],
+        startBranch,
+        targetBranch,
+      });
+      return result;
+    } else {
+      const taskRecord = await db.query.tasks.findFirst({
+        where: eq(tasks.id, request.taskId),
+      });
+
+      if (!taskRecord) {
+        throw new AppError(404, "Task not found", "21002");
+      }
+
+      return this.addContinuationSubTask(taskRecord, request.prompt);
+    }
+  }
+
   public async addTask(
     startTask: StartTaskRequest,
   ): Promise<TaskServiceResult> {
@@ -838,10 +877,7 @@ export class TaskService {
       await this.github.checkAuth(startTask.owner, startTask.repo);
     }
 
-    const projectName =
-      startTask.type === "github"
-        ? `${startTask.owner}/${startTask.repo}`
-        : startTask.projectName;
+    const projectName = `${startTask.owner}/${startTask.repo}`;
 
     const projectRecord = await this.getProject(projectName);
 
@@ -904,26 +940,62 @@ ${startTask.prompt}`,
     };
   }
 
-  public async killAndRemoveTask(taskRecord: TaskRecord) {
-    this.logger.info("Killing and removing task:", taskRecord.id);
+  public async stopTask(taskId: number) {
+    const taskRecord = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!taskRecord) {
+      throw new AppError(400, "Task not found", "20010");
+    }
+
+    if (taskFinalStatuses.includes(taskRecord.status as TaskStatus)) {
+      return { success: true, task: taskRecord };
+    }
+
+    this.logger.info("Stopping task:", taskRecord.id);
+
     await db
       .update(tasks)
       .set({ status: "killed" })
       .where(eq(tasks.id, taskRecord.id));
 
-    this.llmScheduler.removeCompleteCallback(taskRecord.currentSubTaskId!);
     if (taskRecord.currentSubTaskId) {
       await db
         .update(subTasks)
         .set({ status: "killed" })
-        .where(
-          and(
-            eq(subTasks.id, taskRecord.currentSubTaskId),
-            eq(subTasks.status, "running"),
-          ),
-        );
+        .where(eq(subTasks.id, taskRecord.currentSubTaskId));
+
+      this.llmScheduler.removeCompleteCallback(taskRecord.currentSubTaskId);
     }
-    this.llmScheduler.stopTaskIfExists(taskRecord.id);
+
+    await this.llmScheduler.stopTaskIfExists(taskRecord.id);
+
+    const updated = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskRecord.id),
+    });
+
+    return { success: true, task: updated ?? taskRecord };
+  }
+
+  public async deleteTask(taskId: number) {
+    const taskRecord = await db.query.tasks.findFirst({
+      where: eq(tasks.id, taskId),
+    });
+
+    if (!taskRecord) {
+      throw new AppError(400, "Task not found", "20011");
+    }
+
+    if (taskRecord.status === "running") {
+      throw new AppError(400, "Task is running; stop it first", "20012");
+    }
+
+    this.logger.info("Deleting task:", taskRecord.id);
+
+    await db.delete(tasks).where(eq(tasks.id, taskId));
+
+    return { success: true };
   }
 
   private async _setupSubTask(
