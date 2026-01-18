@@ -1,6 +1,6 @@
 # thattool-llm
 
-Autonomous backend service that turns GitHub issues into pull requests.
+Autonomous coding agent, deployed as a Docker container, that turns GitHub issues into pull requests.
 
 At a high level, it:
 - Listens to GitHub webhooks (via a GitHub App)
@@ -33,18 +33,25 @@ To receive GitHub webhooks locally, expose the port (e.g. `ngrok http 5001`) and
 
 The service is configured via environment variables.
 
-Required:
+Required (see `src/lib/env.ts`):
+- `SERVER_URL` (e.g. `http://localhost:5001`)
 - `OPENAI_API_KEY`
-- `SIMPLE_AUTH_TOKEN` (Bearer token for `/task/*` endpoints)
 - `DATABASE_URL` (Postgres connection string)
-- `GITHUB_APP_ID`
-- `GITHUB_APP_PK_FILE` (path to GitHub App PEM private key)
-- `GITHUB_WEBHOOK_SECRET`
-- Exactly one of:
-  - `GITHUB_ISSUES_ACCEPT_LABELS` (comma-separated)
-  - `GITHUB_ISSUES_IGNORE_LABELS` (comma-separated)
+- Auth/session:
+  - `JWT_SECRET`
+  - `ALLOWED_EMAIL` (GitHub account email allowed to log in)
+  - `SESSION_SECRET`
+- GitHub App:
+  - `GITHUB_APP_ID`
+  - `GITHUB_APP_PK_FILE` (path to GitHub App PEM private key)
+  - `GITHUB_WEBHOOK_SECRET`
+  - `GITHUB_APP_CLIENT_ID`
+  - `GITHUB_APP_CLIENT_SECRET`
+- Issue label filter:
+  - `GITHUB_ISSUES_ACCEPT_LABELS` (comma-separated; default: empty)
+  - `GITHUB_ISSUES_IGNORE_LABELS` (comma-separated; default: empty)
 
-Common optional settings (see `src/lib/env.ts`):
+Common optional settings:
 - `GITHUB_DEFAULT_OPENAI_MODEL` (default: `o4-mini`)
 - `PROJECTS_ROOT_DIR` (default: `./projects`)
 - `LOG_DIR` (default: `./.logs`)
@@ -61,32 +68,26 @@ Common optional settings (see `src/lib/env.ts`):
 
 ## API (most-used endpoints)
 
-All endpoints require:
+All endpoints under `/task` and `/manual` require a valid JWT (see `src/routes/middleware.ts` + `/auth/*`).
 
-```
-Authorization: Bearer <SIMPLE_AUTH_TOKEN>
-Content-Type: application/json
-```
-
-- `POST /task/start` start a GitHub or local task
-- `GET /task/:id/status` view task status
-- `GET /task/:id/logs` stream task logs
+- `GET /task/:id/status` view current subtask status
+- `GET /task/:id/logs/stream` stream logs (SSE)
 - `GET /task/:id/files` download workspace as a zip
 - `POST /task/begin-epic` run a chain of issues sequentially
+- `POST /task/stop` stop a running task
+- `POST /task/restart` restart a task
+- `POST /task/delete` delete a task record
+- `POST /task/update-project` update project metadata
+- `GET /task/projects` list projects
+- `GET /task/projects/:projectId/tasks` list tasks in a project
+- `GET /task/projects/:projectId/subtasks` list subtasks in a project
+- `GET /task/events/stream?projectId=...` stream task/subtask events (SSE)
+- `POST /manual/subtask` create a manual subtask
 
-Example: start a GitHub task
+Example: create an auth token (for API calls)
 
-```json
-{
-  "type": "github",
-  "owner": "acme",
-  "repo": "frontend",
-  "startBranch": "main",
-  "targetBranch": "feat/issue-123",
-  "linkedIssueNumber": 123,
-  "prompt": "Implement the feature described in issue #123"
-}
-```
+1) Navigate to `http://localhost:5001/login` and complete GitHub OAuth.
+2) You’ll be redirected with `?token=...`; use that value as `Authorization: Bearer ...`.
 
 ## GitHub App permissions/events
 
