@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 
 let oauthClient: client.Configuration | null = null;
 
+//deprecated
 export function createOAuthClient() {
     if (oauthClient) {
         return oauthClient;
@@ -15,8 +16,8 @@ export function createOAuthClient() {
     
     oauthClient = new client.Configuration(
       serverMetadata,
-      env.auth.githubClientId,
-      { client_secret: env.auth.githubClientSecret },
+      env.github.oauthClientId,
+      { client_secret: env.github.oauthClientSecret },
       client.ClientSecretPost(), // send client_id/client_secret in the POST body
     );
     

@@ -8,6 +8,8 @@ import cors from "cors";
 import session from "express-session";
 import { authRouter } from "./auth";
 import { errorHandler } from "./error-handler";
+import path from "path";
+import { fileURLToPath } from "url";
 
 export const app = express();
 
@@ -16,6 +18,13 @@ export async function setupExpress() {
     "express.js",
     "express.log",
   );
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const viewsDir = path.resolve(__dirname, "../views");
+
+  app.set("view engine", "ejs");
+  app.set("views", viewsDir);
 
   app.use(cors());
   app.use((req, res, next) => {
@@ -59,6 +68,10 @@ export async function setupExpress() {
       },
     }),
   );
+
+  app.get(["/", "/monitor"], async (_req, res) => {
+    res.render("monitor", {});
+  });
 
   app.use("/task", taskRouter);
   app.use("/auth", authRouter);

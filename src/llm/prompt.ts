@@ -1,7 +1,7 @@
 import { openai } from "@/llm/openai";
 import { getToolJSON2 } from "@/llm/services/tools";
 import { getSystemMessage } from "@/llm/system_prompt";
-import { readLineAsync } from "@/util";
+import { readLineAsync } from "@/lib/util";
 
 import OpenAI from "openai";
 import { env } from "@/lib/env";

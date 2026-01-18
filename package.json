@@ -23,6 +23,7 @@
     "cors": "^2.8.5",
     "cron": "^4.3.0",
     "dotenv": "^16.5.0",
+    "ejs": "^3.1.10",
     "drizzle-kit": "^0.31.1",
     "drizzle-orm": "^0.43.1",
     "drizzle-zod": "^0.5.1",

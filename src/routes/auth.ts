@@ -1,16 +1,12 @@
 import { Request, Response, Router } from "express";
-import * as client from "openid-client";
 import jwt from "jsonwebtoken";
 import { env } from "@/lib/env";
-import { b64urlEncodeUtf8, b64urlDecodeUtf8 } from "@/lib/util/base64";
 import { addHoursUnixSeconds } from "@/lib/util/time";
 import { db } from "@/lib/db";
 import { authTable } from "@/lib/db/auth";
-import { createOAuthClient } from "@/lib/util/oauth";
 import { getFullURL } from "@/lib/util/express";
 import { AppError } from "@/lib/util";
-
-type AuthState = { nonce: string };
+import { serviceMesh } from "@/services/mesh";
 
 type GitHubUser = {
   id: number;
@@ -43,32 +39,21 @@ export const authRouter = Router();
 
 authRouter.get("/github/login", async (req: Request, res: Response) => {
   // GitHub recommends (strongly) state + PKCE for the code flow.
-  const nonce = client.randomState();
-  const codeVerifier = client.randomPKCECodeVerifier();
-  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
-
-  const stateObj: AuthState = { nonce };
-  const encodedState = b64urlEncodeUtf8(JSON.stringify(stateObj));
+  const redirectUri = getFullURL(req, "/auth/callback");
+  const { url, state } =
+    serviceMesh.github.githubApp.oauth.getWebFlowAuthorizationUrl({
+      allowSignup: false,
+      //   scopes: ["read:user", "user:email"],
+      redirectUrl: redirectUri,
+    });
 
   const sess = req.session;
   sess.oauth ??= {};
-  sess.oauth[nonce] = {
-    codeVerifier,
-    expectedState: encodedState,
+  sess.oauth[state] = {
     createdAt: Date.now(),
   };
 
-  const redirectUri = getFullURL(req, "/auth/callback");
-
-  const authUrl = client.buildAuthorizationUrl(createOAuthClient(), {
-    redirect_uri: redirectUri,
-    scope: "read:user user:email",
-    state: encodedState,
-    code_challenge: codeChallenge,
-    code_challenge_method: "S256",
-  });
-
-  res.redirect(302, authUrl.toString());
+  res.redirect(302, url);
 });
 
 // GET /api/auth/callback?code=...&state=...
@@ -78,36 +63,32 @@ authRouter.get("/callback", async (req: Request, res: Response) => {
   if (!code || !state)
     throw new AppError(400, "Missing code or state", "10002");
 
-  const decoded = b64urlDecodeUtf8(state);
-  const authState = JSON.parse(decoded) as AuthState;
-
   const sess = req.session;
-  const entry = sess.oauth?.[authState.nonce];
+  const entry = sess.oauth?.[state];
   if (!entry)
     throw new AppError(
       400,
       "OAuth session not found (expired or invalid)",
       "10003",
     );
-  if (entry.expectedState !== state)
-    throw new AppError(400, "State mismatch", "10004");
 
   // One-time use
-  delete sess.oauth?.[authState.nonce];
+  delete sess.oauth?.[state];
 
-  const currentURL = new URL(getFullURL(req));
+  const redirectUrl = getFullURL(req, "/auth/callback");
+  const tokenInfo = await serviceMesh.github.githubApp.oauth.createToken({
+    code,
+    state,
+    redirectUrl: redirectUrl,
+  });
 
-  // Exchange code for tokens (PKCE + expectedState validation). :contentReference[oaicite:6]{index=6}
-  const tokens = await client.authorizationCodeGrant(
-    createOAuthClient(),
-    currentURL,
-    {
-      pkceCodeVerifier: entry.codeVerifier,
-      expectedState: entry.expectedState,
-    },
-  );
+  if (!tokenInfo.authentication.token)
+    throw new AppError(401, "No access_token received", "10004");
 
-  const accessToken = tokens.access_token;
+  // One-time use
+  delete sess.oauth?.[state];
+
+  const accessToken = tokenInfo.authentication.token;
   if (!accessToken)
     throw new AppError(401, "No access_token received", "10005");
 
