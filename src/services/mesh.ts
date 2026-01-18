@@ -18,7 +18,9 @@ export function newServiceMesh(projectsRootDir: string, logsDir: string) {
     createDefaultWinstonLogger("GitHubWrapper", "github.log"),
     pk,
     appId,
-    webhookSecret
+    webhookSecret,
+    env.github.oauthClientId,
+    env.github.oauthClientSecret,
   );
   const llmScheduler = new LLMScheduler(
     createDefaultWinstonLogger("LLMScheduler", "llm-scheduler.log")

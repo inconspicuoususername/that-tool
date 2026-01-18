@@ -34,7 +34,9 @@ export class GitHubWrapper {
     private logger: winston.Logger,
     private privateKey: string,
     private appId: string,
-    private webhookSecret: string
+    private webhookSecret: string,
+    private oauthClientId: string,
+    private oauthClientSecret: string,
   ) {
     this.git = simpleGit();
 
@@ -43,6 +45,10 @@ export class GitHubWrapper {
     this.githubApp = new App({
       appId: this.appId,
       privateKey: this.privateKey,
+      oauth: {
+        clientId: this.oauthClientId,
+        clientSecret: this.oauthClientSecret,
+      },
       webhooks: {
         secret: this.webhookSecret,
       },
@@ -58,7 +64,7 @@ export class GitHubWrapper {
 
         if (this._appName === "") {
           this.logger.error(
-            "Unable to resolve app name through Github API. Exiting."
+            "Unable to resolve app name through Github API. Exiting.",
           );
           throw new Error("App name not found through Github API");
         }
@@ -92,7 +98,7 @@ export class GitHubWrapper {
       {
         owner,
         repo,
-      }
+      },
     );
     const id = installation.data.id;
 
@@ -103,7 +109,7 @@ export class GitHubWrapper {
     const installationID = await this.getInstallationID(owner, repo);
     this.logger.info(
       "Getting installation token for installation ID:",
-      installationID
+      installationID,
     );
     const client = await this.findRepoClient(owner, repo);
     const token = await client.rest.apps.createInstallationAccessToken({
@@ -115,7 +121,7 @@ export class GitHubWrapper {
   async cloneRepo(
     repo: string,
     owner: string,
-    targetDir: string
+    targetDir: string,
   ): Promise<void> {
     this.logger.info("Getting installation token");
     const token = await this.getInstallationToken(owner, repo);
@@ -126,7 +132,7 @@ export class GitHubWrapper {
   async pullRepo(
     repo: string,
     owner: string,
-    targetDir: string
+    targetDir: string,
   ): Promise<void> {
     this.logger.info("Pulling repo:", owner, repo);
     const token = await this.getInstallationToken(owner, repo);
@@ -165,13 +171,13 @@ export class GitHubWrapper {
     original: {
       owner: string;
       repo: string;
-    }
+    },
   ): Promise<boolean> {
     //true -> branch already exists, false -> branch created
     const branchExists = await this.branchExists(
       original.owner,
       original.repo,
-      branchName
+      branchName,
     );
     if (branchExists) {
       this.logger.info("Branch already exists:", branchName);
@@ -188,13 +194,13 @@ export class GitHubWrapper {
   async commitAndPush(
     repoPath: string,
     branchName: string,
-    commitMessage: string
+    commitMessage: string,
   ): Promise<void> {
     this.logger.info(
       "Committing and pushing:",
       branchName,
       "in repo:",
-      repoPath
+      repoPath,
     );
     const repo = simpleGit(repoPath);
     repo.addConfig("user.name", "that-tool-agent");
@@ -207,7 +213,7 @@ export class GitHubWrapper {
   async getPRByBranch(
     owner: string,
     repo: string,
-    branch: string
+    branch: string,
   ): Promise<PullRequest | null> {
     try {
       const client = await this.findRepoClient(owner, repo);
@@ -253,7 +259,7 @@ export class GitHubWrapper {
       throw new GithubInstallationError(
         "Cannot access repository. Please install the GitHub App in the referenced repository using the following link: \n" +
           // process.env.GITHUB_APP_INSTALL_URL
-          (await this.githubApp.getInstallationUrl())
+          (await this.githubApp.getInstallationUrl()),
       );
     }
     return client;
@@ -320,7 +326,7 @@ export class GitHubWrapper {
         });
       } else {
         this.logger.error(
-          "Pull request is not mergeable. Please merge manually."
+          "Pull request is not mergeable. Please merge manually.",
         );
         this.logger.error("Pull request body:", pr.data);
       }

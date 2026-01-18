@@ -28,7 +28,6 @@ export const githubStartTaskSchema = baseStartTaskSchema.extend({
 });
 
 export const startTaskRequestSchema = z.discriminatedUnion("type", [
-  localStartTaskSchema,
   githubStartTaskSchema,
 ]);
 
@@ -39,12 +38,23 @@ export type LocalStartTaskRequest = z.infer<typeof localStartTaskSchema>;
 export type GithubStartTaskRequest = z.infer<typeof githubStartTaskSchema>;
 
 export const startTaskResponseSchema = z.object({
-  taskID: z.string(),
+  taskID: z.number(),
 });
 
 export type StartTaskResponse = z.infer<typeof startTaskResponseSchema>;
 
-export const getTaskSchema = z.string().uuid();
+export const getTaskSchema = z.coerce.number().int().positive();
+
+export const getProjectIdSchema = z.string().uuid();
+
+export const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const tailLogsQuerySchema = z.object({
+  subtaskId: z.coerce.number().int().positive().optional(),
+});
 
 export type GetTaskRequest = z.infer<typeof getTaskSchema>;
 
@@ -70,6 +80,11 @@ export const updateProjectRequestSchema = z.object({
   defaultBaseBranch: z.string().optional(),
   defaultModel: z.string().optional(),
   projectSpecification: z.string().optional(),
+  enabled: z.boolean().optional(),
+  shouldHaveMemories: z.boolean().optional(),
+  shouldOverwriteMemories: z.boolean().optional(),
+  maxLLMRetries: z.coerce.number().int().min(0).max(20).optional(),
+  maxChainedPRs: z.coerce.number().int().min(0).max(20).optional(),
 });
 
 export type UpdateProjectRequest = z.infer<typeof updateProjectRequestSchema>;

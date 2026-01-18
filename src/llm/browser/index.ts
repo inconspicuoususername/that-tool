@@ -8,7 +8,7 @@ import { runCode } from "./run-isolated";
 import { parse } from "node-html-parser";
 import { openAIResponsesCall } from "../openai-api-call";
 import { createDefaultWinstonLogger } from "@/lib/basic-logger";
-import { sleep } from "@/util";
+import { sleep } from "@/lib/util";
 
 interface BrowserContext {
   browser: Browser | null;

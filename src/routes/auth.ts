@@ -1,32 +1,18 @@
-import express, { Request, Response, Router } from "express";
-import session from "express-session";
-import * as client from "openid-client";
+import { Request, Response, Router } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "@/lib/env";
-import { b64urlEncodeUtf8, b64urlDecodeUtf8 } from "@/lib/util/base64";
-import { addDaysUnixSeconds } from "@/lib/util/time";
+import { addHoursUnixSeconds } from "@/lib/util/time";
 import { db } from "@/lib/db";
 import { authTable } from "@/lib/db/auth";
-import { createOAuthClient } from "@/lib/util/oauth";
 import { getFullURL } from "@/lib/util/express";
-
-type AuthState = { mobile: boolean; nonce: string };
+import { AppError } from "@/lib/util";
+import { serviceMesh } from "@/services/mesh";
 
 type GitHubUser = {
   id: number;
   email: string | null;
   login: string;
 };
-
-class AppError extends Error {
-  status: number;
-  nonce: string;
-  constructor(status: number, message: string, nonce: string) {
-    super(message);
-    this.status = status;
-    this.nonce = nonce;
-  }
-}
 
 async function githubApi<T>(path: string, accessToken: string): Promise<T> {
   // GitHub REST API requests should include a User-Agent header. :contentReference[oaicite:2]{index=2}
@@ -40,136 +26,129 @@ async function githubApi<T>(path: string, accessToken: string): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new AppError(401, `GitHub API error (${res.status}): ${text}`, "10001");
+    throw new AppError(
+      401,
+      `GitHub API error (${res.status}): ${text}`,
+      "10001",
+    );
   }
   return (await res.json()) as T;
 }
 
-// Session type shim
-type OAuthSessionEntry = {
-  codeVerifier: string;
-  expectedState: string;
-  createdAt: number;
-};
-type SessionWithOAuth = session.Session & {
-  oauth?: Record<string, OAuthSessionEntry>;
-};
-
 export const authRouter = Router();
 
-// GET /api/auth/github/login?mobile=true|false
 authRouter.get("/github/login", async (req: Request, res: Response) => {
-  const mobile = String(req.query.mobile ?? "false") === "true";
-
-  // GitHub recommends (strongly) state + PKCE for the code flow. :contentReference[oaicite:5]{index=5}
-  const nonce = client.randomState();
-  const codeVerifier = client.randomPKCECodeVerifier();
-  const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
-
-  const stateObj: AuthState = { mobile, nonce };
-  const encodedState = b64urlEncodeUtf8(JSON.stringify(stateObj));
-
-  const sess = req.session as SessionWithOAuth;
-  sess.oauth ??= {};
-  sess.oauth[nonce] = {
-    codeVerifier,
-    expectedState: encodedState,
-    createdAt: Date.now(),
-  };
-
+  // GitHub recommends (strongly) state + PKCE for the code flow.
   const redirectUri = getFullURL(req, "/auth/callback");
+  const next = typeof req.query.next === "string" ? req.query.next : undefined;
+  const state =
+    next && next.trim().length > 0
+      ? `monitoring:${Buffer.from(next, "utf8").toString("base64url")}`
+      : undefined;
 
-  const authUrl = client.buildAuthorizationUrl(createOAuthClient(), {
-    redirect_uri: redirectUri,
-    scope: "read:user user:email",
-    state: encodedState,
-    code_challenge: codeChallenge,
-    code_challenge_method: "S256",
+  const result = serviceMesh.github.githubApp.oauth.getWebFlowAuthorizationUrl({
+    allowSignup: false,
+    // We need email verification; /user/emails requires user:email.
+    // scopes: ["read:user", "user:email"],
+    redirectUrl: redirectUri,
+    ...(state ? { state } : {}),
   });
 
-  res.redirect(302, authUrl.toString());
+  res.redirect(302, result.url);
 });
 
 // GET /api/auth/callback?code=...&state=...
 authRouter.get("/callback", async (req: Request, res: Response) => {
-  try {
-    const code = String(req.query.code ?? "");
-    const state = String(req.query.state ?? "");
-    if (!code || !state) throw new AppError(400, "Missing code or state", "10002");
+  const code = String(req.query.code ?? "");
+  const state = String(req.query.state ?? "");
+  if (!code || !state)
+    throw new AppError(400, "Missing code or state", "10002");
 
-    const decoded = b64urlDecodeUtf8(state);
-    const authState = JSON.parse(decoded) as AuthState;
+  // const entry = sess.oauth?.[state];
+  // if (!entry)
+  //   throw new AppError(
+  //     400,
+  //     "OAuth session not found (expired or invalid)",
+  //     "10003",
+  //   );
 
-    const sess = req.session as SessionWithOAuth;
-    const entry = sess.oauth?.[authState.nonce];
-    if (!entry)
-      throw new AppError(400, "OAuth session not found (expired or invalid)", "10003");
-    if (entry.expectedState !== state)
-      throw new AppError(400, "State mismatch", "10004");
+  // // One-time use
+  // delete sess.oauth?.[state];
 
-    // One-time use
-    delete sess.oauth?.[authState.nonce];
+  const redirectUrl = getFullURL(req, "/auth/callback");
+  const tokenInfo = await serviceMesh.github.githubApp.oauth.createToken({
+    code,
+    state,
+    redirectUrl: redirectUrl,
+  });
 
-    const currentURL = new URL(getFullURL(req));
+  if (!tokenInfo.authentication.token)
+    throw new AppError(401, "No access_token received", "10004");
 
-    // Exchange code for tokens (PKCE + expectedState validation). :contentReference[oaicite:6]{index=6}
-    const tokens = await client.authorizationCodeGrant(createOAuthClient(), currentURL, {
-      pkceCodeVerifier: entry.codeVerifier,
-      expectedState: entry.expectedState,
-    });
+  // One-time use
+  // delete sess.oauth?.[state];
 
-    const accessToken = tokens.access_token;
-    if (!accessToken) throw new AppError(401, "No access_token received", "10005");
+  const accessToken = tokenInfo.authentication.token;
+  if (!accessToken)
+    throw new AppError(401, "No access_token received", "10005");
 
-    // Fetch user info
-    const ghUser = await githubApi<GitHubUser>("/user", accessToken);
+  // Fetch user info
+  const ghUser = await githubApi<GitHubUser>("/user", accessToken);
 
-    // If email missing, fetch from /user/emails (requires user:email scope). :contentReference[oaicite:7]{index=7}
-    let email = ghUser.email;
-    if (!email) {
-      const emails = await githubApi<
-        Array<{ email: string; primary: boolean; verified: boolean }>
-      >("/user/emails", accessToken);
-      const primaryVerified = emails.find((e) => e.primary && e.verified);
-      if (!primaryVerified) throw new AppError(401, "No verified email found", "10006");
-      email = primaryVerified.email;
-    }
-
-    if (email !== env.auth.allowedEmail) {
-      throw new AppError(403, "Email not authorized", "10007");
-    }
-
-    const githubId = String(ghUser.id);
-
-    // Upsert user in DB
-    const result = await db.insert(authTable)
-      .values({
-        github_id: githubId,
-        email,
-        username: ghUser.login,
-      })
-      .onConflictDoUpdate({
-        target: authTable.github_id,
-        set: {
-          email: authTable.email,
-          username: authTable.username,
-        },
-      })
-      .returning()
-
-    const user = result[0];
-    if (!user) throw new AppError(500, "Failed to upsert user", "10008");
-
-    // Generate JWT (30 days)
-    const token = jwt.sign(
-      { sub: String(user.id), email: user.email, exp: addDaysUnixSeconds(30) },
-      env.auth.jwtSecret,
-    );
-
-    res.json({ token, user });
-  } catch (err) {
-    const status = err instanceof AppError ? err.status : 500;
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    res.status(status).json({ error: msg });
+  // If email missing, fetch from /user/emails (requires user:email scope). :contentReference[oaicite:7]{index=7}
+  let email = ghUser.email;
+  if (!email) {
+    const emails = await githubApi<
+      Array<{ email: string; primary: boolean; verified: boolean }>
+    >("/user/emails", accessToken);
+    const primaryVerified = emails.find((e) => e.primary && e.verified);
+    if (!primaryVerified)
+      throw new AppError(401, "No verified email found", "10006");
+    email = primaryVerified.email;
   }
+
+  if (email !== env.auth.allowedEmail) {
+    throw new AppError(403, "Email not authorized", "10007");
+  }
+
+  const githubId = String(ghUser.id);
+
+  // Upsert user in DB
+  const result = await db
+    .insert(authTable)
+    .values({
+      github_id: githubId,
+      email,
+      username: ghUser.login,
+    })
+    .onConflictDoUpdate({
+      target: authTable.github_id,
+      set: {
+        email: authTable.email,
+        username: authTable.username,
+      },
+    })
+    .returning();
+
+  const user = result[0];
+  if (!user) throw new AppError(500, "Failed to upsert user", "10008");
+
+  // Generate JWT (3 hours)
+  const token = jwt.sign(
+    { sub: String(user.id), email: user.email, exp: addHoursUnixSeconds(3) },
+    env.auth.jwtSecret,
+  );
+
+  const stateParts = state.split(":");
+  let redirectTo = "/";
+  if (stateParts.length === 2 && stateParts[0] === "monitoring") {
+    const decoded = Buffer.from(stateParts[1], "base64url").toString("utf8");
+    redirectTo = decoded;
+  }
+
+  // Redirect with token in query param
+  const url = new URL(redirectTo, getFullURL(req, "/"));
+  url.searchParams.set("token", token);
+
+  res.redirect(302, url.toString());
 });

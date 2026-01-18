@@ -6,7 +6,7 @@ dotenv.config();
 const connectionString = process.env.DATABASE_URL!;
 
 export default {
-  schema: "./src/lib/db/schema.ts",
+  schema: ["./src/lib/db/schema.ts", "./src/lib/db/auth.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

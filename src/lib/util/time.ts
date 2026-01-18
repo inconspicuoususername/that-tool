@@ -1,4 +1,4 @@
-export function addDaysUnixSeconds(days: number): number {
+export function addHoursUnixSeconds(hours: number): number {
   const nowSec = Math.floor(Date.now() / 1000);
-  return nowSec + days * 24 * 60 * 60;
+  return nowSec + hours * 60 * 60;
 }

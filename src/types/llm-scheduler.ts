@@ -24,6 +24,7 @@ export interface SubtaskInstance {
   project: ProjectRecord;
   subtask: SubTaskRecord;
   promise: Promise<void>;
+  abortController: AbortController;
 }
 
 export interface TaskServiceResult {

@@ -1,7 +1,7 @@
 import { openai } from "@/llm/openai";
 import { getToolJSON2 } from "@/llm/services/tools";
 import { getSystemMessage } from "@/llm/system_prompt";
-import { readLineAsync } from "@/util";
+import { readLineAsync } from "@/lib/util";
 
 import OpenAI from "openai";
 import { env } from "@/lib/env";
@@ -13,7 +13,10 @@ import {
   LLMResult,
   SubtaskInstance,
 } from "@/types/llm-scheduler";
-import { createDefaultWinstonLogger } from "@/lib/basic-logger";
+import {
+  createDefaultWinstonLogger,
+  createDefaultWinstonLoggerExact,
+} from "@/lib/basic-logger";
 import { Logger } from "winston";
 import { SubTaskRecord } from "@/types/db";
 import { openAIResponsesCall } from "./openai-api-call";
@@ -123,7 +126,8 @@ export async function populatePreviousResponse({
 }
 
 export async function executeTask(
-  task: SubtaskInstance
+  task: SubtaskInstance,
+  abortSignal: AbortSignal,
 ): Promise<LLMResult | LLMHelpRequest> {
   // // Initialize tools
   // const terminalService = new TerminalService(taskRecord.workDir);
@@ -140,7 +144,7 @@ export async function executeTask(
 
   // Function to log messages
   // const logger = createLogger("Agent");
-  const logger = createDefaultWinstonLogger("Agent", task.setup.logFile);
+  const logger = createDefaultWinstonLoggerExact("Agent", task.setup.logFile);
 
   // Initialize conversation history
   const prompt = task.setup.currentPrompt;
@@ -197,7 +201,7 @@ export async function executeTask(
     const commit = toolCalls.find((x) => x.name === "commit");
     if (commit) {
       logger.info(
-        "Tool call 'commit' found. Model has completed the task successfully."
+        "Tool call 'commit' found. Model has completed the task successfully.",
       );
       const commitMessage = JSON.parse(commit.arguments).message;
       const commitDescription = JSON.parse(commit.arguments).description;
@@ -219,7 +223,7 @@ export async function executeTask(
           throw new Error(`Invalid tool name: ${toolCall.name}`);
         }
         logger.info(
-          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`
+          `Calling with tool parameters: ${JSON.stringify(params, null, 2)}`,
         );
         if (env.shouldAskForTool) {
           //ask for approval from stdin
@@ -263,11 +267,16 @@ export async function executeTask(
       toolsDefinition,
       previousResponseId,
       logger,
+      abortSignal,
     });
+
+    if (abortSignal.aborted) {
+      throw new Error("Task execution aborted");
+    }
 
     if (!apiResponse) {
       throw new Error(
-        `Failed to get response from OpenAI API: ${apiError?.message}`
+        `Failed to get response from OpenAI API: ${apiError?.message}`,
       );
     }
 
