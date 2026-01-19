@@ -7,7 +7,7 @@ export function errorHandler(
   res: Response,
   next: NextFunction
 ) {
-  console.error(`Error processing request: ${err}`);
+  console.error(`Error processing request:`, err);
   if (err instanceof AppError) {
     res.status(err.status).json({ error: err.message, nonce: err.nonce });
   } else if (err instanceof Error) {

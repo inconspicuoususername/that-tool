@@ -1,6 +1,6 @@
 import { getAllDirectoriesStr } from "./services/directory-tree";
 import os from "os";
-import { getLinuxDistro } from "../util";
+import { getLinuxDistro } from "@/lib/util";
 
 export const getSystemMessage = async ({
   persistentTerminalIDs,

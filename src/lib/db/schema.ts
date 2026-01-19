@@ -15,7 +15,7 @@ import { subTaskStatuses, taskStatuses } from "@/types/db";
 import { PullRequestState } from "@/types/github";
 
 const schema = pgSchema("ttl_agent");
-const pgTable = schema.table;
+export const pgTable = schema.table;
 
 const defaultColumns = {
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -31,6 +31,8 @@ export const projects = pgTable("projects", {
   projectName: text("project_name").notNull().unique(),
   repo: text("repo").notNull(),
   owner: text("owner").notNull(),
+
+  enabled: boolean("enabled").notNull().default(false),
 
   projectSpecification: text("project_specification"),
   defaultBaseBranch: text("default_base_branch").notNull().default("main"),

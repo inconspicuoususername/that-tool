@@ -216,6 +216,10 @@ export async function createTaskMemory(
 ) {
   const tx = db;
 
+  if (!project.shouldHaveMemories) {
+    return;
+  }
+  
   if (!project.memoryVectorStoreId) {
     throw new Error("No memory vector store id found");
   }

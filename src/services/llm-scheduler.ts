@@ -14,6 +14,7 @@ import {
 } from "@/types/llm-scheduler";
 import winston from "winston";
 import fs from "fs/promises";
+import fssync from "fs";
 import archiver from "archiver";
 import path from "path";
 import { shouldExcludeDirectory } from "@/llm/services/directory-tree";
@@ -53,7 +54,8 @@ export class LLMScheduler {
     const task = this.runningTasks.find((t) => t.subtask.taskId === taskId);
     if (task) {
       task.subtask.status = "killed";
-      task.promise = Promise.resolve();
+      task.abortController.abort();
+      task.promise.catch(() => {});
       this.runningTasks = this.runningTasks.filter((t) => t !== task);
       this.completeCallbacks.delete(task.subtask.id);
       await db
@@ -152,9 +154,10 @@ export class LLMScheduler {
       },
       subtask: updatedSubtask,
       promise: Promise.resolve(),
+      abortController: new AbortController(),
     } satisfies SubtaskInstance;
 
-    subtask.promise = executeTask(subtask)
+    subtask.promise = executeTask(subtask, subtask.abortController.signal)
       .then((res) => {
         if (res.type === "tool_result") {
           this._onTaskComplete(subtask, null, res);
@@ -176,9 +179,53 @@ export class LLMScheduler {
   public async getSubtaskLogs(subtaskId: number) {
     const subtask = this.runningTasks.find((t) => t.subtask.id === subtaskId);
     if (!subtask) {
-      throw new Error("Subtask not found");
+      // Subtasks that already finished are removed from `runningTasks`, but their
+      // log files still exist on disk.
+      const subTaskRecord = await db.query.subTasks.findFirst({
+        where: eq(subTasks.id, subtaskId),
+      });
+
+      if (!subTaskRecord) {
+        throw new Error("Subtask not found");
+      }
+
+      throw new Error("Subtask is not running");
     }
+
     return await fs.readFile(subtask.setup.logFile, "utf-8");
+  }
+
+  public getSubtaskLogFilePathSync(subtaskId: number) {
+    const st = this.runningTasks.find((t) => t.subtask.id === subtaskId);
+    return st?.setup.logFile ?? null;
+  }
+
+  public readSubtaskLogChunkSync(subtaskId: number, offset: number) {
+    const logFilePath = this.getSubtaskLogFilePathSync(subtaskId);
+    if (!logFilePath) {
+      throw new Error("Subtask is not running");
+    }
+
+    const stat = fssync.statSync(logFilePath);
+    const fileSize = stat.size;
+
+    if (offset >= fileSize) {
+      return { chunk: "", nextOffset: fileSize, eof: true };
+    }
+
+    const length = fileSize - offset;
+    const fd = fssync.openSync(logFilePath, "r");
+    try {
+      const buffer = Buffer.alloc(length);
+      const bytes = fssync.readSync(fd, buffer, 0, length, offset);
+      return {
+        chunk: buffer.subarray(0, bytes).toString("utf-8"),
+        nextOffset: offset + bytes,
+        eof: offset + bytes >= fileSize,
+      };
+    } finally {
+      fssync.closeSync(fd);
+    }
   }
 
   public async getSubtaskWorkDir(subtaskId: number) {

@@ -1,13 +1,14 @@
 import { serviceMesh } from "@/services/mesh";
 import { taskRouter } from "@/routes/task";
 import { createNodeMiddleware } from "@octokit/webhooks";
-import { env } from "../lib/env";
 import { createDefaultWinstonLogger } from "../lib/basic-logger";
 import express from "express";
 import cors from "cors";
-import session from "express-session";
+// import session from "express-session";
 import { authRouter } from "./auth";
 import { errorHandler } from "./error-handler";
+import { requireJWT } from "./middleware";
+import { manualRouter } from "./manual";
 
 export const app = express();
 
@@ -39,29 +40,37 @@ export async function setupExpress() {
     await middleware(req, res, next);
   });
 
-  app.use(errorHandler);
   // app.use(express.urlencoded({ extended: true }));
 
   app.set("trust proxy", 1);
 
   app.use(express.json());
 
-  app.use(
-    session({
-      secret: env.auth.sessionSecret,
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        httpOnly: true,
-        sameSite: "lax",
-        // secure: env.serverUrl.startsWith("https://"),
-        secure: true,
-      },
-    }),
-  );
+  // app.use(
+  //   session({
+  //     secret: env.auth.sessionSecret,
+  //     resave: false,
+  //     saveUninitialized: false,
+  //     cookie: {
+  //       httpOnly: true,
+  //       sameSite: "lax",
+  //       secure: env.serverUrl.startsWith("https://"),
+  //     },
+  //   }),
+  // );
 
-  app.use("/task", taskRouter);
+  app.get(["/", "/monitor"], requireJWT, async (_req, res) => {
+    res.render("monitor", {});
+  });
+  app.get(["/login"], async (_req, res) => {
+    res.render("login", {});
+  });
+
+  app.use("/task", requireJWT, taskRouter);
+  app.use("/manual", requireJWT, manualRouter);
   app.use("/auth", authRouter);
+
+  app.use(errorHandler);
 
   return new Promise((resolve) => {
     app.listen(5001, () => {

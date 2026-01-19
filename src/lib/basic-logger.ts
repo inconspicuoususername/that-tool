@@ -4,7 +4,7 @@ import { env } from "./env";
 
 export const defaultWinstonFmt = winston.format.combine(
   winston.format.timestamp(),
-  winston.format.json()
+  winston.format.json(),
 );
 
 const formatMeta = (meta: any) => {
@@ -23,10 +23,10 @@ const defaultWinstonConsoleTransport = new winston.transports.Console({
     // winston.format.splat(),
     winston.format.printf(({ timestamp, level, message, service, ...meta }) => {
       return `[${timestamp}] [${service}] [${level}] ${message} ${formatMeta(
-        meta
+        meta,
       )}`;
     }),
-    winston.format.colorize({ all: true })
+    winston.format.colorize({ all: true }),
   ),
   forceConsole: true,
   level: "debug",
@@ -42,6 +42,26 @@ export function createDefaultWinstonLogger(service: string, logfile: string) {
     transports: [
       new winston.transports.File({
         filename: path.join(env.logDir, logfile),
+        level: "info",
+      }),
+      defaultWinstonConsoleTransport,
+    ],
+  });
+}
+
+export function createDefaultWinstonLoggerExact(
+  service: string,
+  logfile: string,
+) {
+  return winston.createLogger({
+    level: "info",
+    defaultMeta: {
+      service: service,
+    },
+    format: defaultWinstonFmt,
+    transports: [
+      new winston.transports.File({
+        filename: logfile,
         level: "info",
       }),
       defaultWinstonConsoleTransport,

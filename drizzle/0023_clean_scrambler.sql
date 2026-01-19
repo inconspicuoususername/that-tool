@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."users" ADD CONSTRAINT "users_github_id_unique" UNIQUE("github_id");

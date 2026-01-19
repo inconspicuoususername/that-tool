@@ -20,6 +20,7 @@ function getOrDefaultBoolean(key: string, defaultValue?: boolean) {
 }
 
 export const env = {
+  serverUrl: getOrDefault("SERVER_URL"),
   openai: {
     apiKey: getOrDefault("OPENAI_API_KEY"),
     defaultModel: getOrDefault("GITHUB_DEFAULT_OPENAI_MODEL", "o4-mini"),
@@ -32,8 +33,6 @@ export const env = {
   logDir: getOrDefault("LOG_DIR", path.join(process.cwd(), ".logs")),
   memoryDir: getOrDefault("MEMORY_DIR", path.join(process.cwd(), ".memory")),
   auth: {
-    githubClientId: getOrDefault("GITHUB_CLIENT_ID"),
-    githubClientSecret: getOrDefault("GITHUB_CLIENT_SECRET"),
     jwtSecret: getOrDefault("JWT_SECRET"),
     allowedEmail: getOrDefault("ALLOWED_EMAIL"),
     sessionSecret: getOrDefault("SESSION_SECRET"),
@@ -42,6 +41,8 @@ export const env = {
     appId: getOrDefault("GITHUB_APP_ID"),
     privateKeyFile: getOrDefault("GITHUB_APP_PK_FILE"),
     webhookSecret: getOrDefault("GITHUB_WEBHOOK_SECRET"),
+    oauthClientId: getOrDefault("GITHUB_APP_CLIENT_ID"),
+    oauthClientSecret: getOrDefault("GITHUB_APP_CLIENT_SECRET"),
     issueAcceptLabels: getOrDefault("GITHUB_ISSUES_ACCEPT_LABELS", ""),
     issueIgnoreLabels: getOrDefault("GITHUB_ISSUES_IGNORE_LABELS", ""),
     trustMeBro: getOrDefaultBoolean("GITHUB_TRUST_ME_BRO", false),

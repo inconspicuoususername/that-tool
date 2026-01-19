@@ -1,0 +1,1 @@
+ALTER TABLE "ttl_agent"."projects" ADD COLUMN "enabled" boolean DEFAULT false NOT NULL;
